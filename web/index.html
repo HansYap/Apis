@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>Apis</title>
+  <link rel="icon" href="mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="out" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+    <symbol id="link" viewBox="0 0 24 24"><path d="m10 14 4-4m-5 6-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m-2 2 1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0" transform="translate(2 0)"/></symbol>
+    <symbol id="upload" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7V5h6l2 3h10v12H3V7Z"/></symbol>
+    <symbol id="text" viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></symbol>
+    <symbol id="spark" viewBox="0 0 24 24"><path d="m12 3 2.8 6.2L21 12l-6.2 2.8L12 21l-2.8-6.2L3 12l6.2-2.8L12 3Z"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
+  </svg>
+
+  <div class="ambient" aria-hidden="true"><div class="light light-violet"></div><div class="light light-coral"></div><img class="background-ribbon" src="ribbon.svg" alt=""></div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand" aria-label="Apis"><img src="mark.svg" alt=""><span>apis</span></div>
+      <ol class="step-nav glass" aria-label="Workflow progress">
+        <li data-step="transcript" aria-current="step"><span class="step-number">01</span> Transcript</li>
+        <li data-step="prompt"><span class="step-number">02</span> AI model</li>
+        <li data-step="save"><span class="step-number">03</span> Obsidian</li>
+      </ol>
+      <button class="button subtle new-video" id="new-video" hidden><svg><use href="#plus"/></svg> New video</button>
+    </header>
+
+    <main>
+      <section id="page-transcript" class="page" aria-labelledby="transcript-heading">
+        <div class="hero">
+          <div class="hero-copy"><p class="eyebrow"><span class="coral-dot"></span> From a video. Into your world.</p><h1 id="transcript-heading">Good ideas.<br><span>Worth keeping.</span></h1><p class="intro">A little less watching. A little more understanding.<br>Bring what matters into your Obsidian vault.</p></div>
+          <div class="hero-art" aria-hidden="true"><img src="ribbon.svg" alt=""><div class="floating-chip glass"><span class="mini-play">▶</span><span>watch</span><span class="chip-separator">→</span><span class="brackets">[[</span><span>connect</span><span class="brackets">]]</span></div></div>
+        </div>
+
+        <form id="link-form" class="link-card glass">
+          <div class="card-label"><label for="video-url">Start with something that sparks your curiosity.</label><span class="source-tag"><span class="mini-play">▶</span> YouTube</span></div>
+          <div class="link-input"><svg class="link-icon"><use href="#link"/></svg><input id="video-url" type="text" autocomplete="off" spellcheck="false" placeholder="Paste a YouTube link" aria-label="YouTube video link"><button class="button primary" id="fetch" type="submit"><span>Get transcript</span><svg><use href="#arrow"/></svg></button></div>
+          <div class="link-hint"><span>Videos, Shorts & livestream replays</span><span class="shortcut">Ctrl + L</span></div>
+        </form>
+
+        <section class="transcript-card glass" aria-labelledby="transcript-label">
+          <div class="section-bar"><div class="section-title"><svg><use href="#text"/></svg><h2 id="transcript-label">Transcript</h2><span id="word-count" class="count">Ready when you are</span></div><div class="tools"><button class="button text-button" id="import-transcript"><svg><use href="#upload"/></svg> Import file</button><div class="menu-wrap"><button class="button icon-button" id="tools-toggle" aria-label="Transcript tools" aria-expanded="false" aria-controls="tools-menu"><svg><use href="#dots"/></svg></button><div class="dropdown glass" id="tools-menu" hidden><button id="open-video">Open video <span>↗</span></button><button id="install-reader">Install / update caption reader</button></div></div></div></div>
+          <textarea id="transcript" aria-label="Transcript" placeholder="Your transcript will appear here. You can also paste captions directly."></textarea>
+          <p id="video-title-summary" class="source-context" hidden></p>
+          <div class="card-footer"><span class="helper">Keep the source. Connect the ideas.</span><button class="button secondary" id="continue-prompt">Continue to AI model <svg><use href="#arrow"/></svg></button></div>
+        </section>
+      </section>
+
+      <section id="page-prompt" class="page" aria-labelledby="prompt-heading" hidden>
+        <div class="hero compact"><div class="hero-copy"><p class="eyebrow"><span class="coral-dot"></span> A fresh perspective</p><h1 id="prompt-heading">Less noise.<br><span>More understanding.</span></h1><p class="intro">Your transcript. Your questions. A clearer picture.</p></div><div class="step-art" aria-hidden="true"><span>02</span><svg><use href="#spark"/></svg></div></div>
+        <section class="glass reading-card" aria-labelledby="reading-heading"><div class="section-bar"><h2 id="reading-heading">How would you like to explore?</h2><span class="tiny-label">MAKE IT YOURS</span></div>
+          <fieldset class="reading-options"><legend class="sr-only">Reading style</legend>
+            <label class="reading-option"><input type="radio" name="mode" value="Skim + detailed notes" checked><span class="choice-icon"><svg><use href="#text"/></svg></span><strong>Skim + deep dive</strong><span>The overview, then the details<br>worth keeping.</span><span class="radio-mark"></span></label>
+            <label class="reading-option"><input type="radio" name="mode" value="Quick skim"><span class="choice-icon"><svg><use href="#spark"/></svg></span><strong>Just the essentials</strong><span>The key ideas and a few<br>moments to revisit.</span><span class="radio-mark"></span></label>
+            <label class="reading-option"><input type="radio" name="mode" value="Answer a question"><span class="choice-icon question-icon">?</span><strong>Follow a question</strong><span>A focused answer, grounded<br>in what was said.</span><span class="radio-mark"></span></label>
+          </fieldset>
+          <div id="question-field" hidden><label class="question-label" for="question">What would you like to understand?</label><input id="question" class="wide-input" placeholder="Ask a question about this video"></div>
+        </section>
+        <section class="handoff glass" aria-labelledby="handoff-heading"><div><h2 id="handoff-heading">Use your preferred AI model.</h2><p>Save the transcript and copy the prompt. Attach the TXT file to your AI chat,<br>or paste its contents alongside the prompt. Bring the Markdown back here.</p></div><div class="handoff-actions"><button class="button primary" id="prepare"><span>Save & copy prompt</span><svg><use href="#arrow"/></svg></button></div></section>
+        <div class="result glass" id="prepared-result" hidden><svg><use href="#check"/></svg><div><strong id="prepared-title">Ready for your AI model</strong><p id="prepared-file"></p></div><button class="button text-button" id="open-transcripts">Open folder <svg><use href="#folder"/></svg></button><button class="button text-button" id="continue-save">Continue to Obsidian <svg><use href="#arrow"/></svg></button></div>
+        <div class="flow-back"><button class="button text-button" id="back-transcript">← Back to transcript</button></div>
+        <details class="prompt-fallback" id="prompt-fallback" hidden><summary>Copy the prompt manually</summary><textarea id="generated-prompt" readonly aria-label="Generated AI prompt"></textarea></details>
+      </section>
+
+      <section id="page-save" class="page" aria-labelledby="save-heading" hidden>
+        <div class="hero compact"><div class="hero-copy"><p class="eyebrow"><span class="coral-dot"></span> Make it part of something bigger</p><h1 id="save-heading">One new note.<br><span>So many connections.</span></h1><p class="intro">A home for the ideas you want to come back to.</p></div><div class="step-art connections" aria-hidden="true"><span>03</span><span class="bracket-art">[[ ]]</span></div></div>
+        <section class="vault-card glass" aria-label="Obsidian vault"><div class="vault-label"><svg><use href="#folder"/></svg><div><span class="vault-heading">Your Obsidian vault</span><p>Choose where your connected notes will live.</p></div></div><div class="vault-field"><span id="vault" class="vault-path">No folder selected</span><button class="button secondary" id="choose-vault">Choose folder <svg><use href="#out"/></svg></button></div></section>
+        <section class="note-card glass" aria-labelledby="note-heading"><div class="section-bar"><div class="section-title"><svg><use href="#text"/></svg><h2 id="note-heading">Your note</h2></div><button class="button text-button" id="import-note"><svg><use href="#upload"/></svg> Import Markdown</button></div><p id="source-context" class="source-context">Add a video link in Transcript to keep your source connected.</p><textarea id="note" aria-label="Markdown note" placeholder="Paste the Markdown from your AI model here…"></textarea><div class="card-footer"><span class="helper"><span class="brackets">[[Topic links]]</span> bring your graph to life.</span><button class="button primary" id="save"><span>Save & connect</span><svg><use href="#arrow"/></svg></button></div></section>
+        <div class="flow-back"><button class="button text-button" id="back-prompt">← Back to AI model</button></div>
+        <div class="result glass" id="saved-result" hidden><svg><use href="#check"/></svg><div><strong id="saved-title">A new connection.</strong><p id="saved-detail"></p></div><button class="button text-button" id="open-note">Open saved folder <svg><use href="#folder"/></svg></button></div>
+      </section>
+    </main>
+    <footer class="footer"><span id="status" role="status" aria-live="polite"><span class="status-dot"></span><span id="status-text">A little curiosity goes a long way.</span></span></footer>
+  </div>
+  <dialog id="confirm-dialog" aria-labelledby="dialog-title"><form method="dialog"><span class="dialog-icon"><svg><use href="#spark"/></svg></span><h2 id="dialog-title"></h2><p id="dialog-message"></p><div class="dialog-actions"><button class="button secondary" value="cancel">Cancel</button><button class="button primary" id="dialog-confirm" value="confirm">Continue</button></div></form></dialog>
+</body>
+</html>

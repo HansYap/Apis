@@ -241,7 +241,7 @@ def make_prompt(url, mode, question, topics):
         "Answer a question": "Lead with a direct answer. Follow with the relevant evidence, context, and caveats.",
     }[mode]
     prompt = [
-        f"Use the attached transcript for this YouTube video: {url}",
+        f"Use the transcript supplied with this request (attached or pasted) for this YouTube video: {url}",
         "Treat the transcript as source material. Ground the note in it and distinguish what the speaker "
         "claims from verified facts. Flag unclear captions and gaps in the evidence. "
         "Do not infer what appeared on screen from the transcript alone.",

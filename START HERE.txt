@@ -1,67 +1,77 @@
-YOUTUBE TO OBSIDIAN
-===================
+APIS — YOUTUBE TO OBSIDIAN
+=========================
 
-A free Windows tool for keeping YouTube transcripts and saving linked reading
-notes in Obsidian. The app runs on your computer. You do the AI step in your
-normal ChatGPT chat, using your existing plan. There is no API key or API bill.
+Keep the useful parts of a video and connect them in your Obsidian vault.
+Apis runs locally. Use your own ChatGPT chat for the AI step; no API key is
+needed and Apis never uploads your transcripts to ChatGPT automatically.
 
 FIRST RUN
 
-1. Extract the entire ZIP to a folder you can write to. Keep the files together.
-2. Double-click "Start YouTube to Obsidian.cmd".
-3. In "2 Save to Obsidian", choose your vault folder. If you don't have a vault
-   yet, create one in Obsidian, or choose any folder to keep Markdown files.
-4. Go back to step 1. The first time you click Get transcript, the app asks to
-   install the free yt-dlp caption reader from PyPI inside its own folder.
-
-This computer already has Python with Tk and a supported version of Node.
-On another PC, install Python 3.11 or newer with Tk and pip, and either Node.js
-22+ or Deno 2.3+ for automatic YouTube caption retrieval. Restart the app after
-installing them. Manual paste and Markdown saving work without Node or Deno.
+1. Keep the entire app folder together, including web/, assets/, and
+   requirements.txt. Double-click "Start Apis.cmd".
+2. On a new computer, Apis offers to install its desktop interface from PyPI
+   inside .packages/. This is a one-time setup. Python 3.11+ with Tk and pip,
+   and the Microsoft Edge WebView2 Runtime, are required on Windows.
+3. Click "Connect your vault" at the bottom, or choose your folder in the
+   Obsidian screen. Pick the folder you open as an Obsidian vault.
+4. Automatic YouTube captions also need Node.js 22+ or Deno 2.3+. The first
+   fetch offers to install the free yt-dlp caption reader inside the app.
+   Manual transcript import and Markdown saving work without Node or Deno.
 
 EACH VIDEO
 
-1. Paste the YouTube video URL and click Get transcript. Leave the caption
-   language blank to choose automatically, or enter a code such as en or ms.
-2. Choose Skim + detailed notes, Quick skim, or Answer a question. Add a question
-   or focus if you have one. Click Save transcript + copy ChatGPT prompt.
-3. Open your ChatGPT chat. Attach the saved TXT from the Transcripts folder,
-   paste the prompt, and send it. A Codex chat can use the same attachment and
-   instructions. Review important details against their timestamps.
-4. Copy the Markdown from ChatGPT, using Copy on the code block if shown, and
-   paste it in step 2. A downloaded Markdown file works too.
-5. Click Save note & link topics. In Obsidian, open Graph view or Local graph.
+1. TRANSCRIPT
+   Paste a YouTube link and click Get transcript. You can also paste captions
+   or choose Import file to load a UTF-8 TXT, SRT, or VTT file. Expand Video
+   details to edit the title or choose a caption language such as en or ms.
+   Leave language blank to choose automatically.
+
+2. CHATGPT
+   Click Read with ChatGPT. Choose Skim + deep dive, Just the essentials,
+   or Follow a question. Add your question or focus, then click
+   Save & copy prompt. Open folder to find the saved TXT.
+   In your ChatGPT chat, attach that file, paste the prompt, and send it.
+   Review important details against their timestamps.
+
+3. OBSIDIAN
+   Copy ChatGPT's Markdown into Your note, or use Import Markdown.
+   Choose your vault, then click Save & connect.
+   Open Obsidian's Graph view or a topic's Backlinks to explore connections.
+
+Choose your vault before preparing the prompt to reuse existing YouTube topic
+names. Switching screens keeps your current text. Ctrl+L returns to the link.
+New video asks before clearing a transcript or note from the workspace.
 
 WHAT GETS SAVED
 
   Transcripts/          Timestamped TXT files beside the app
-  Vault/YouTube/Notes/  One Markdown note per save with a link to the video
-  Vault/YouTube/Topics/  Topic notes for new [[wikilinks]]
+  Vault/YouTube/Notes/  Video notes with source links
+  Vault/YouTube/Topics/ Topic notes for new [[wikilinks]]
 
 Links belong in the note itself. For example: "Use [[Active recall]] to test
 yourself, then use [[Spaced repetition]] to schedule the next review."
-If two videos mention [[Active recall]], both can link to the same topic note.
-Open that topic's Backlinks pane to find the videos that mention it. The app
-reuses matching vault notes when it can identify one and creates a topic note
-otherwise. If a response contains no wikilinks, wrap relevant topic names in
-double square brackets before saving. Saving again creates a new version
-beside the first one.
+Apis reuses matching vault notes where it can identify one and creates a topic
+note otherwise. Saving again creates a numbered copy rather than overwriting.
 
-IF YOUTUBE CAPTIONS DON'T LOAD
+IF CAPTIONS DO NOT LOAD
 
-- Use Open YouTube. In the video's description, click Show transcript.
-  Copy the transcript with its timestamps and paste it into the transcript
-  box. You can also load an existing UTF-8 TXT, SRT, or VTT file.
-- Try Install / update caption reader if retrieval used to work and then
-  stopped. Some videos have no usable captions or restrict direct requests.
-- Videos without captions need a transcript from another source. Captions
-  cover speech. Add screenshots to your ChatGPT request for charts, code,
-  demonstrations, or other details that only appear on screen.
+Use the three-dot menu beside Import file to open the video or install/update
+the caption reader. In YouTube, choose Show transcript, copy the captions,
+and paste them into Apis. Some videos have no captions or restrict retrieval.
 
-The app downloads caption text when YouTube makes it available. It does not
-sign in to YouTube, read browser cookies, or upload files to ChatGPT for you.
+Captions only cover speech. Add screenshots to your ChatGPT request for charts,
+code, demonstrations, or other details that appear only on screen.
+
+DESIGN AND PRIVACY
+
+The dark graphite/violet design uses coral accents, frosted panels, and original
+SVG artwork. DM Sans is bundled with its open font license; it loads locally.
+There are no remote font requests or analytics. Apis does not read browser
+cookies or sign in to YouTube. Settings, transcripts, and dependencies stay out
+of Git. The original Start YouTube to Obsidian.cmd launcher still works.
 
 Help:
 https://support.google.com/youtube/answer/15930243
 https://obsidian.md/help/links
 https://github.com/yt-dlp/yt-dlp/wiki/EJS
+https://developer.microsoft.com/microsoft-edge/webview2/
