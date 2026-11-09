@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.packages/
+.venv/
+venv/
+settings.json
+Transcripts/
+.env
+.env.*
