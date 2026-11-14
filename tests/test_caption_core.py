@@ -317,7 +317,7 @@ class SaveNoteTests(unittest.TestCase):
 
     def test_empty_body_is_rejected(self):
         for body in ("", "   ", "````markdown\n\n````"):
-            with self.subTest(body=body), self.assertRaises(ValueError):
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "^Paste the Markdown from your AI model first\\.$"):
                 save_note(self.vault, URL, "Title", body)
         self.assertFalse((self.vault / "YouTube").exists())
 

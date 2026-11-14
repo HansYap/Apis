@@ -304,7 +304,7 @@ def save_note(vault, url, title, raw, extra=None):
     url, identifier = video_url(url)
     body = unwrap_note(raw)
     if not body:
-        raise ValueError("Paste the Markdown returned by ChatGPT first.")
+        raise ValueError("Paste the Markdown from your AI model first.")
     note_folder = tool_folder(vault, "Notes")
     topic_folder = tool_folder(vault, "Topics")
     existing = {}

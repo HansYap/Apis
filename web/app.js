@@ -9,6 +9,7 @@ let highestStep = 0;
 let preparedSignature = null;
 let vaultPath = "";
 const steps = ["transcript", "prompt", "save"];
+const launcher = navigator.userAgent.includes("Windows") ? "Start Apis.cmd" : "start-apis.sh";
 const formFields = ["video-url", "video-title", "transcript", "question", "note"];
 
 function status(message, kind = "") {
@@ -17,7 +18,7 @@ function status(message, kind = "") {
 }
 
 async function api(method, ...args) {
-  if (!window.pywebview?.api) throw new Error("Open Start Apis.cmd to use captions and local files. This is a design preview.");
+  if (!window.pywebview?.api) throw new Error(`Open ${launcher} to use captions and local files. This is a design preview.`);
   const response = await window.pywebview.api[method](...args);
   if (!response.ok) throw new Error(response.error);
   return response.data;
@@ -119,7 +120,7 @@ function requireVideo() {
 async function fetchTranscript(event) {
   event.preventDefault();
   if (busy || !requireVideo()) return;
-  if (!ready) { status("Open Start Apis.cmd to retrieve captions. This is a design preview.", "error"); return; }
+  if (!ready) { status(`Open ${launcher} to retrieve captions. This is a design preview.`, "error"); return; }
   if (!readerInstalled && !(await confirmAction("One quick setup.", "Install the free yt-dlp caption reader from PyPI? It stays inside Apis’ folder. You can also import or paste captions without installing it.", "Install & continue"))) return;
   let languageMissing = false;
   await run(readerInstalled ? "Finding the words behind the video…" : "Installing the caption reader…", async () => {
@@ -315,4 +316,4 @@ async function initialize() {
 }
 window.addEventListener("pywebviewready", initialize);
 if (window.pywebview?.api) initialize();
-setTimeout(() => { if (!ready) status("Design preview · Open Start Apis.cmd to work with captions and local files."); }, 1200);
+setTimeout(() => { if (!ready) status(`Design preview · Open ${launcher} to work with captions and local files.`); }, 1200);
