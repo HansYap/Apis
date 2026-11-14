@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from caption_core import (choose_track, clean_transcript, make_prompt, parse_json3, parse_subtitle_file,
-                          safe_stem, save_note, unwrap_note, video_url)
+                          safe_stem, save_note, unwrap_note, vault_markdown, video_url)
 
 ID = "abcdefghijk"
 URL = f"https://www.youtube.com/watch?v={ID}"
@@ -223,6 +224,30 @@ class SaveNoteTests(unittest.TestCase):
         self.assertIn("[[YouTube/Topics/Active recall|Active recall]]", text)
         self.assertIn("[[YouTube/Topics/Spacing|Spacing]]", text)
         self.assertEqual(created, 2)
+
+    def test_vault_scan_never_enters_hidden_folders(self):
+        for relative in (".obsidian/plugins/p/Active recall.md", ".git/objects/x.md", "Areas/.Hidden.md",
+                         "Areas/Upper.MD", "Areas/Note.md", "Areas/Notes.txt"):
+            self.add(relative)
+        scanned = []
+        real_scandir = os.scandir
+
+        def recording_scandir(path="."):
+            scanned.append(Path(path))
+            return real_scandir(path)
+        with patch.object(os, "scandir", recording_scandir):
+            found = sorted(path.relative_to(self.vault).as_posix() for path in vault_markdown(self.vault))
+        self.assertEqual(found, ["Areas/Note.md", "Areas/Upper.MD"])
+        self.assertTrue(scanned)
+        self.assertFalse([path for path in scanned if any(part.startswith(".") for part in path.relative_to(self.vault).parts)])
+
+    def test_uppercase_md_notes_are_link_targets(self):
+        self.add("Areas/Upper.MD")
+        self.add("Areas/.Hidden.md")
+        _, text, _, created = self.save("[[Upper]] [[Hidden]]")
+        self.assertIn("[[Areas/Upper|Upper]]", text)
+        self.assertIn("[[YouTube/Topics/Hidden|Hidden]]", text)
+        self.assertEqual(created, 1)
 
     def test_symlinks_out_of_the_vault_are_not_link_targets(self):
         outside = tempfile.TemporaryDirectory(prefix="apis-outside-")

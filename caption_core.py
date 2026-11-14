@@ -1,5 +1,6 @@
 import html
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -214,6 +215,15 @@ def tool_folder(vault, category):
     return folder
 
 
+def vault_markdown(vault):
+    """Yield the vault's Markdown files. Hidden folders (.obsidian, .git, .trash) are never entered."""
+    for folder, dirnames, filenames in os.walk(vault):
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for name in filenames:
+            if not name.startswith(".") and name.casefold().endswith(".md"):
+                yield Path(folder, name)
+
+
 def topic_names(vault):
     folder = tool_folder(vault, "Topics")
     return sorted((p.stem for p in folder.glob("*.md")), key=str.casefold)[:150]
@@ -277,9 +287,10 @@ def save_note(vault, url, title, raw):
     note_folder = tool_folder(vault, "Notes")
     topic_folder = tool_folder(vault, "Topics")
     existing = {}
-    for path in vault.rglob("*.md"):
+    root = vault.resolve()
+    for path in vault_markdown(vault):
         relative = path.relative_to(vault)
-        if any(part.startswith(".") for part in relative.parts) or not path.resolve().is_relative_to(vault.resolve()):
+        if not path.resolve().is_relative_to(root):
             continue
         if path.parent == note_folder or any(c in relative.as_posix() for c in "#^[]|"):
             continue
@@ -311,7 +322,7 @@ def save_note(vault, url, title, raw):
                     file.write(f"# {name}\n\nSee **Backlinks** for videos and notes that mention this topic.\n")
                 created.append(topic)
             except FileExistsError:
-                if not topic.is_file() or not topic.resolve().is_relative_to(vault.resolve()):
+                if not topic.is_file() or not topic.resolve().is_relative_to(root):
                     raise ValueError(f"Cannot safely use the existing topic path for {name}.")
             existing.setdefault(key, []).append(topic)
         linked.add(topic)
