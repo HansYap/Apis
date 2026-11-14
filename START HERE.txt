@@ -68,7 +68,7 @@ The dark graphite/violet design uses coral accents, frosted panels, and original
 SVG artwork. DM Sans is bundled with its open font license; it loads locally.
 There are no remote font requests or analytics. Apis does not read browser
 cookies or sign in to YouTube. Settings, transcripts, and dependencies stay out
-of Git. The original Start YouTube to Obsidian.cmd launcher still works.
+of Git.
 
 Help:
 https://support.google.com/youtube/answer/15930243

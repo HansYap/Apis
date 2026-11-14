@@ -14,7 +14,6 @@ On its first launch, Apis offers to install its desktop renderer (pywebview)
 inside `.packages/`. Microsoft Edge WebView2 Runtime is also required; it is
 already available on most Windows PCs. Keep `app.py`, `caption_core.py`,
 `requirements.txt`, `web/`, and `assets/` together.
-The original **Start YouTube to Obsidian.cmd** launcher also works.
 
 For automatic captions, install Node.js 22+ or Deno 2.3+.
 The app offers to install yt-dlp locally on the first fetch.
