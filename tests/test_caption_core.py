@@ -1,5 +1,6 @@
 """Offline checks for caption parsing, prompts, and Obsidian linking."""
 
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -7,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from caption_core import (choose_track, clean_transcript, make_prompt, parse_json3, parse_subtitle_file,
+from caption_core import (choose_track, clean_transcript, frontmatter, make_prompt, parse_json3, parse_subtitle_file,
                           safe_stem, save_note, unwrap_note, vault_markdown, video_url)
 
 ID = "abcdefghijk"
@@ -158,7 +159,8 @@ class SaveNoteTests(unittest.TestCase):
     def test_new_topic_is_created_and_linked(self):
         path, text, linked, created = self.save("````markdown\n## Notes\nUse [[Active recall]] and [[Spaced repetition|spacing]].\n````")
         self.assertEqual(path, self.vault / "YouTube" / "Notes" / f"A useful idea ({ID}).md")
-        self.assertEqual(text, f"# A useful idea\n\n[Watch on YouTube]({URL})\n\n## Notes\n"
+        self.assertEqual(text, f'---\nsource: "{URL}"\nvideo_id: "{ID}"\n---\n'
+                               f"# A useful idea\n\n[Watch on YouTube]({URL})\n\n## Notes\n"
                                "Use [[YouTube/Topics/Active recall|Active recall]] and "
                                "[[YouTube/Topics/Spaced repetition|spacing]].\n")
         self.assertEqual((linked, created), (2, 2))
@@ -274,10 +276,44 @@ class SaveNoteTests(unittest.TestCase):
     def test_title_fallback_and_unsafe_title(self):
         path, text, _, _ = self.save("Body", title="  ")
         self.assertEqual(path.name, f"YouTube video {ID} ({ID}).md")
-        self.assertTrue(text.startswith(f"# YouTube video {ID}\n"))
+        self.assertIn(f"\n---\n# YouTube video {ID}\n", text)
         path, text, _, _ = self.save("Body", title="What? A: B/C")
         self.assertEqual(path.name, f"What A B C ({ID}).md")
-        self.assertTrue(text.startswith("# What? A: B/C\n"))
+        self.assertIn("\n---\n# What? A: B/C\n", text)
+
+    def test_properties_come_first_exactly_once(self):
+        properties = '---\nsource: "%s"\nvideo_id: "%s"\nsaved: 2026-11-14\ntags: ["youtube"]\n---\n' % (URL, ID)
+        path, linked, created = save_note(self.vault, URL, 'Say "hi": now', "## Notes\n---\nText",
+                                          extra={"saved": date(2026, 11, 14), "tags": ["youtube"]})
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(properties + '# Say "hi": now\n\n[Watch on YouTube]'))
+        self.assertEqual(text.count("---\nsource:"), 1)
+        self.assertTrue(text.endswith("## Notes\n---\nText\n"))
+
+    def test_note_with_its_own_properties_gets_no_second_block(self):
+        body = "---\naliases: [Recall]\ntags:\n  - study\nrelated: \"[[Topic]]\"\n---\n\n## Notes\nText"
+        _, text, _, created = self.save(f"````markdown\n{body}\n````")
+        self.assertTrue(text.startswith('---\naliases: [Recall]\ntags:\n  - study\nrelated: "[[YouTube/Topics/Topic|Topic]]"\n---\n'
+                                        f"# A useful idea\n\n[Watch on YouTube]({URL})\n\n## Notes\nText\n"))
+        self.assertNotIn("video_id", text)
+        self.assertEqual(created, 1)
+
+    def test_leading_rule_is_not_mistaken_for_properties(self):
+        body = "---\n## Part one\nText\n---\n## Part two"
+        _, text, _, _ = self.save(body)
+        self.assertTrue(text.startswith(f'---\nsource: "{URL}"\n'))
+        self.assertTrue(text.endswith(f"[Watch on YouTube]({URL})\n\n{body}\n"))
+        _, text, _, _ = self.save("---\nkey: value\nno closing line")
+        self.assertTrue(text.startswith(f'---\nsource: "{URL}"\n'))
+
+    def test_frontmatter_values_are_quoted_safely(self):
+        tricky = 'He said: "yes" # not a comment\n- [x] {y} \\ ünïcödé'
+        block = frontmatter({"title": tricky, "saved": date(2026, 1, 2), "tags": ["youtube", "a: b"]})
+        lines = block.splitlines()
+        self.assertEqual((lines[0], lines[-1], len(lines)), ("---", "---", 5))
+        self.assertEqual(json.loads(lines[1].split(": ", 1)[1]), tricky)
+        self.assertEqual(lines[2], "saved: 2026-01-02")
+        self.assertEqual(json.loads(lines[3].split(": ", 1)[1]), ["youtube", "a: b"])
 
     def test_empty_body_is_rejected(self):
         for body in ("", "   ", "````markdown\n\n````"):

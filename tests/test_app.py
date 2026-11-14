@@ -1,5 +1,6 @@
 """Offline behavior checks for the desktop bridge and real file outputs."""
 
+from datetime import date
 import json
 from pathlib import Path
 import subprocess
@@ -33,6 +34,9 @@ class DesktopWorkflowTests(unittest.TestCase):
                         "vault": str(self.root), "note": "````markdown\n## Notes\nUse [[Active recall]].\n````"}
 
     def test_prepare_and_save_end_to_end(self):
+        today = patch.object(app, "date", SimpleNamespace(today=lambda: date(2026, 11, 14)))
+        today.start()
+        self.addCleanup(today.stop)
         result = self.api.prepare(self.payload)
         self.assertTrue(result["ok"], result)
         content = (app.TRANSCRIPTS / result["data"]["filename"]).read_text(encoding="utf-8")
@@ -46,7 +50,13 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertEqual((first["data"]["linked"], first["data"]["created"]), (1, 1))
         self.assertEqual(second["data"]["created"], 0)
         note = self.root / "YouTube" / "Notes" / first["data"]["filename"]
-        self.assertIn("[[YouTube/Topics/Active recall|Active recall]]", note.read_text(encoding="utf-8"))
+        self.assertEqual(note.read_text(encoding="utf-8"),
+                         '---\nsource: "https://www.youtube.com/watch?v=abcdefghijk"\nvideo_id: "abcdefghijk"\n'
+                         'saved: 2026-11-14\ntags: ["youtube"]\n---\n# A useful idea\n\n'
+                         "[Watch on YouTube](https://www.youtube.com/watch?v=abcdefghijk)\n\n"
+                         "## Notes\nUse [[YouTube/Topics/Active recall|Active recall]].\n")
+        topic = self.root / "YouTube" / "Topics" / "Active recall.md"
+        self.assertTrue(topic.read_text(encoding="utf-8").startswith("# Active recall\n"))  # Topic notes get no properties.
 
     def test_question_mode_requires_question_without_writing(self):
         self.payload.update(mode="Answer a question", question="")
@@ -127,7 +137,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         saved = self.api.save(self.payload)["data"]
         self.assertEqual(saved["filename"], "My own title (abcdefghijk).md")
         note = self.root / "YouTube" / "Notes" / saved["filename"]
-        self.assertTrue(note.read_text(encoding="utf-8").startswith("# My own: title\n"))
+        self.assertIn("\n---\n# My own: title\n", note.read_text(encoding="utf-8"))
         self.payload.update(title="")
         self.assertEqual(self.api.prepare(self.payload)["data"]["filename"], "YouTube video abcdefghijk (abcdefghijk).txt")
 

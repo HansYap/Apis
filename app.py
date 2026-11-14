@@ -1,5 +1,6 @@
 """Apis desktop host. The interface and font load locally from web/."""
 
+from datetime import date
 import functools
 import importlib
 import importlib.util
@@ -197,7 +198,8 @@ class Api:
             raise ValueError("The video link changed after you prepared the transcript. Check it before saving.")
         title = payload.get("title", "").strip() or (self._prepared[1] if self._prepared else "")
         self._remember_vault(vault)
-        path, linked, created = save_note(vault, url, title, payload.get("note", ""))
+        path, linked, created = save_note(vault, url, title, payload.get("note", ""),
+                                          extra={"saved": date.today(), "tags": ["youtube"]})
         self._saved_note = path
         return {"filename": path.name, "linked": linked, "created": created}
 
