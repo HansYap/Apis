@@ -210,6 +210,11 @@ async function saveNote() {
 
 async function reset() {
   if (busy) return;
+  const hasWork = $("transcript").value.trim() || $("note").value.trim();
+  if (hasWork && !(await confirmAction(
+    "Start a new video?",
+    "This clears the transcript and note from the workspace. Files you already saved stay where they are.",
+    "Clear & start fresh"))) return;
   await run("Starting fresh…", async () => {
     await api("reset");
     for (const name of formFields) $(name).value = "";
@@ -265,6 +270,12 @@ $("install-reader").addEventListener("click", async () => {
   if (await confirmAction("Caption reader setup", "Install or update yt-dlp from PyPI inside Apis’ folder?", "Install / update")) {
     await run("Setting up the caption reader…", async () => { await api("install_reader"); readerInstalled = true; status("Caption reader ready. Paste a link and get started."); });
   }
+});
+$("confirm-dialog").addEventListener("click", (event) => {
+  // A click on the backdrop targets the dialog itself but lands outside its box: treat it as Cancel.
+  const box = event.currentTarget.getBoundingClientRect();
+  const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  if (event.target === event.currentTarget && outside) event.currentTarget.close("cancel");
 });
 $("tools-toggle").addEventListener("click", () => { const menu = $("tools-menu"); menu.hidden = !menu.hidden; $("tools-toggle").setAttribute("aria-expanded", String(!menu.hidden)); });
 document.addEventListener("click", (event) => { if (!event.target.closest(".menu-wrap")) { $("tools-menu").hidden = true; $("tools-toggle").setAttribute("aria-expanded", "false"); } });
