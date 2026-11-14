@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from urllib.parse import quote
 import webbrowser
 
 from caption_core import clean_transcript, make_prompt, safe_stem, save_note, topic_names, video_url, write_unique
@@ -36,6 +37,14 @@ def endpoint(function):
         except Exception as exc:
             return {"ok": False, "error": str(exc) or "Something went wrong. Please try again."}
     return wrapped
+
+
+def open_with_system(target):
+    """Open a folder or an app link (obsidian://) with the desktop's default handler."""
+    if os.name == "nt":
+        os.startfile(target)
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(target)])
 
 
 def vault_path(raw):
@@ -212,14 +221,17 @@ class Api:
         else:
             raise ValueError("Save a note first, then open its folder.")
         folder.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            os.startfile(folder)
-        else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(folder)])
+        open_with_system(folder)
         return True
 
     @endpoint
     def open_external(self, destination, link=""):
+        if destination == "obsidian":
+            # Only the note Apis just saved; the link from the page is ignored.
+            if not self._saved_note:
+                raise ValueError("Save a note first, then open it in Obsidian.")
+            open_with_system("obsidian://open?path=" + quote(str(self._saved_note), safe=""))
+            return True
         if destination == "youtube":
             target, _ = video_url(link)
         else:

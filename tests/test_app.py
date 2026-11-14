@@ -157,6 +157,25 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertTrue(self.api.open_external("youtube", self.payload["url"])["ok"])
             opened.assert_called_once_with("https://www.youtube.com/watch?v=abcdefghijk")
 
+    def test_open_in_obsidian_uses_only_the_saved_note(self):
+        with patch.object(app, "open_with_system") as system, patch.object(app.webbrowser, "open") as browser:
+            result = self.api.open_external("obsidian")
+            self.assertFalse(result["ok"])
+            self.assertIn("Save a note first", result["error"])
+            system.assert_not_called()
+            self.assertTrue(self.api.prepare(self.payload)["ok"])
+            self.assertTrue(self.api.save(self.payload)["ok"])
+            for link in ("", "file:///etc/passwd", "obsidian://open?path=/etc/passwd"):
+                self.assertTrue(self.api.open_external("obsidian", link)["ok"])
+            browser.assert_not_called()
+        saved = self.root / "YouTube" / "Notes" / "A useful idea (abcdefghijk).md"
+        self.assertEqual(self.api._saved_note, saved)
+        expected = "obsidian://open?path=" + app.quote(str(saved), safe="")
+        self.assertEqual([call.args[0] for call in system.call_args_list], [expected] * 3)
+        self.assertNotIn("/", expected.removeprefix("obsidian://"))
+        self.assertTrue(self.api.reset()["ok"])
+        self.assertFalse(self.api.open_external("obsidian")["ok"])
+
     def linux_clipboard(self, available, environ, failing=()):
         def run(command, **kwargs):
             if command[0] in failing:

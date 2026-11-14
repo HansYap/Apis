@@ -272,6 +272,7 @@ $("prepare").addEventListener("click", prepare);
 $("save").addEventListener("click", saveNote);
 $("open-video").addEventListener("click", () => run("Opening your video…", async () => { await api("open_external", "youtube", $("video-url").value); status("In YouTube, choose Show transcript if you need to copy captions."); }));
 $("open-transcripts").addEventListener("click", () => run("Opening your transcripts…", async () => { await api("open_folder", "transcripts"); status("Transcript folder opened."); }));
+$("open-obsidian").addEventListener("click", () => run("Opening your note in Obsidian…", async () => { await api("open_external", "obsidian"); status("Your note should now be open in Obsidian."); }));
 $("open-note").addEventListener("click", () => run("Opening your saved notes…", async () => { await api("open_folder", "note"); status("Your saved note folder is open."); }));
 $("install-reader").addEventListener("click", async () => {
   $("tools-menu").hidden = true;
