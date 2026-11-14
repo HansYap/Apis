@@ -69,7 +69,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         saved = self.api._saved_note
         self.api._fetched = (self.payload["url"], "Captions", self.payload["transcript"])
         self.assertTrue(self.api.reset()["ok"])
-        self.assertEqual(self.api.initialize()["data"]["vault"], "")
+        self.assertEqual(self.api.initialize()["data"]["vault"], str(self.root))  # The vault is pipeline config.
         self.assertIsNone(self.api._prepared)
         self.assertIsNone(self.api._fetched)
         self.assertIsNone(self.api._saved_note)

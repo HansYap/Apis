@@ -213,7 +213,7 @@ async function reset() {
   await run("Starting fresh…", async () => {
     await api("reset");
     for (const name of formFields) $(name).value = "";
-    videoTitle = vaultPath = "";
+    videoTitle = "";
     document.querySelector('input[name="mode"]').checked = true;
     $("question").required = false;
     $("question-field").hidden = true;

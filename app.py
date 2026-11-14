@@ -227,7 +227,6 @@ class Api:
 
     @endpoint
     def reset(self):
-        self._remember_vault("")
         self._fetched = self._prepared = self._saved_note = None
         return True
 
