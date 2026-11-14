@@ -48,12 +48,12 @@
           <div class="card-label"><label for="video-url">Start with something that sparks your curiosity.</label><span class="source-tag"><span class="mini-play">▶</span> YouTube</span></div>
           <div class="link-input"><svg class="link-icon"><use href="#link"/></svg><input id="video-url" type="text" autocomplete="off" spellcheck="false" placeholder="Paste a YouTube link" aria-label="YouTube video link"><button class="button primary" id="fetch" type="submit"><span>Get transcript</span><svg><use href="#arrow"/></svg></button></div>
           <div class="link-hint"><span>Videos, Shorts & livestream replays</span><span class="shortcut">Ctrl + L</span></div>
+          <details class="video-details" id="video-details"><summary>Video details <svg><use href="#chevron"/></svg></summary><div class="details-grid"><label for="video-title">Title</label><input id="video-title" class="wide-input" autocomplete="off" placeholder="Filled in when captions load"><label for="caption-language">Caption language</label><input id="caption-language" class="wide-input" autocomplete="off" spellcheck="false" placeholder="Automatic (e.g. en, ms, ja)" maxlength="20"></div></details>
         </form>
 
         <section class="transcript-card glass" aria-labelledby="transcript-label">
           <div class="section-bar"><div class="section-title"><svg><use href="#text"/></svg><h2 id="transcript-label">Transcript</h2><span id="word-count" class="count">Ready when you are</span></div><div class="tools"><button class="button text-button" id="import-transcript"><svg><use href="#upload"/></svg> Import file</button><div class="menu-wrap"><button class="button icon-button" id="tools-toggle" aria-label="Transcript tools" aria-expanded="false" aria-controls="tools-menu"><svg><use href="#dots"/></svg></button><div class="dropdown glass" id="tools-menu" hidden><button id="open-video">Open video <span>↗</span></button><button id="install-reader">Install / update caption reader</button></div></div></div></div>
           <textarea id="transcript" aria-label="Transcript" placeholder="Your transcript will appear here. You can also paste captions directly."></textarea>
-          <p id="video-title-summary" class="source-context" hidden></p>
           <div class="card-footer"><span class="helper">Keep the source. Connect the ideas.</span><button class="button secondary" id="continue-prompt">Continue to AI model <svg><use href="#arrow"/></svg></button></div>
         </section>
       </section>

@@ -7,10 +7,9 @@ let readerInstalled = false;
 let currentStep = "transcript";
 let highestStep = 0;
 let preparedSignature = null;
-let videoTitle = "";
 let vaultPath = "";
 const steps = ["transcript", "prompt", "save"];
-const formFields = ["video-url", "transcript", "question", "note"];
+const formFields = ["video-url", "video-title", "transcript", "question", "note"];
 
 function status(message, kind = "") {
   $("status").className = kind;
@@ -50,7 +49,7 @@ async function run(message, work) {
 }
 
 function payload() {
-  return {url: $("video-url").value, title: videoTitle,
+  return {url: $("video-url").value, title: $("video-title").value.trim(),
     transcript: $("transcript").value,
     mode: document.querySelector('input[name="mode"]:checked').value,
     question: $("question").value, vault: vaultPath, note: $("note").value};
@@ -74,10 +73,8 @@ function updateContext() {
   const text = $("transcript").value.trim();
   const words = text ? text.split(/\s+/).length : 0;
   $("word-count").textContent = words ? `${words.toLocaleString()} words` : "Ready when you are";
-  $("video-title-summary").textContent = videoTitle;
-  $("video-title-summary").hidden = !videoTitle;
   $("source-context").textContent = $("video-url").value.trim()
-    ? `${videoTitle || "Your video"} · ${$("video-url").value.trim()}`
+    ? `${$("video-title").value.trim() || "Your video"} · ${$("video-url").value.trim()}`
     : "Add a video link in Transcript to keep your source connected.";
   $("vault").textContent = vaultPath || "No folder selected";
   $("vault").title = vaultPath;
@@ -124,20 +121,29 @@ async function fetchTranscript(event) {
   if (busy || !requireVideo()) return;
   if (!ready) { status("Open Start Apis.cmd to retrieve captions. This is a design preview.", "error"); return; }
   if (!readerInstalled && !(await confirmAction("One quick setup.", "Install the free yt-dlp caption reader from PyPI? It stays inside Apis’ folder. You can also import or paste captions without installing it.", "Install & continue"))) return;
+  let languageMissing = false;
   await run(readerInstalled ? "Finding the words behind the video…" : "Installing the caption reader…", async () => {
     if (!readerInstalled) {
       await api("install_reader");
       readerInstalled = true;
       status("Finding the words behind the video…", "busy");
     }
-    const result = await api("fetch", $("video-url").value, "");
+    let result;
+    try {
+      result = await api("fetch", $("video-url").value, $("caption-language").value.trim());
+    } catch (error) {
+      languageMissing = error.message.includes("No caption track matches");
+      if (languageMissing) $("video-details").open = true;
+      throw error;
+    }
     $("video-url").value = result.url;
-    videoTitle = result.title;
+    if (!$("video-title").value.trim()) $("video-title").value = result.title;  // A title the user typed wins.
     $("transcript").value = result.text;
     invalidatePreparation();
     updateContext();
     status(`Transcript ready. ${result.track}.`);
   });
+  if (languageMissing) { $("caption-language").focus(); $("caption-language").select(); }
 }
 
 async function chooseVault() {
@@ -218,7 +224,8 @@ async function reset() {
   await run("Starting fresh…", async () => {
     await api("reset");
     for (const name of formFields) $(name).value = "";
-    videoTitle = "";
+    $("caption-language").value = "";
+    $("video-details").open = false;
     document.querySelector('input[name="mode"]').checked = true;
     $("question").required = false;
     $("question-field").hidden = true;
@@ -234,12 +241,14 @@ async function reset() {
 }
 
 formFields.forEach((name) => $(name).addEventListener("input", () => {
-  if (name === "video-url") videoTitle = "";
+  if (name === "video-url") $("video-title").value = "";  // A new video needs a new title.
   if (name !== "note") invalidatePreparation();
   else $("saved-result").hidden = true;
   updateContext();
 }));
 $("link-form").addEventListener("submit", fetchTranscript);
+// Enter in the title must not start a fetch, which would replace a pasted transcript.
+$("video-title").addEventListener("keydown", (event) => { if (event.key === "Enter") event.preventDefault(); });
 $("continue-prompt").addEventListener("click", async () => {
   if (!requireVideo()) return;
   if (!$("transcript").value.trim()) { $("transcript").focus(); status("Fetch, import, or paste a transcript first.", "error"); return; }

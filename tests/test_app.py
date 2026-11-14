@@ -110,6 +110,27 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertFalse(self.api.fetch(self.payload["url"], "")["ok"])
         self.assertFalse(self.api._caption_lock.locked())
 
+    def test_fetch_passes_language_to_reader(self):
+        (app.DEPS / "yt_dlp").mkdir(parents=True)
+        (app.DEPS / "yt_dlp" / "__init__.py").touch()
+        result = {"title": "Example", "text": "[00:03] Kata", "track": "Creator captions (ms)"}
+        with patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(result), returncode=0)) as run:
+            self.assertEqual(self.api.fetch(self.payload["url"], " ms ")["data"]["track"], "Creator captions (ms)")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[-3:], ["https://www.youtube.com/watch?v=abcdefghijk", "ms", str(app.DEPS)])
+
+    def test_custom_title_names_transcript_and_note(self):
+        self.payload.update(title="  My own: title  ")
+        prepared = self.api.prepare(self.payload)["data"]
+        self.assertEqual(prepared["filename"], "My own title (abcdefghijk).txt")
+        self.assertTrue((app.TRANSCRIPTS / prepared["filename"]).read_text(encoding="utf-8").startswith("Title: My own: title\n"))
+        saved = self.api.save(self.payload)["data"]
+        self.assertEqual(saved["filename"], "My own title (abcdefghijk).md")
+        note = self.root / "YouTube" / "Notes" / saved["filename"]
+        self.assertTrue(note.read_text(encoding="utf-8").startswith("# My own: title\n"))
+        self.payload.update(title="")
+        self.assertEqual(self.api.prepare(self.payload)["data"]["filename"], "YouTube video abcdefghijk (abcdefghijk).txt")
+
     def test_existing_caption_task_prevents_another(self):
         self.api._caption_lock.acquire()
         try:
