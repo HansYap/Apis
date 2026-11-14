@@ -2,9 +2,11 @@
 
 import functools
 import importlib
+import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import threading
@@ -21,6 +23,7 @@ HIDE_CONSOLE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PYTHON = Path(sys.executable)
 if PYTHON.name.casefold() == "pythonw.exe":
     PYTHON = PYTHON.with_name("python.exe")
+LINUX_PACKAGES = "sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 webkit2gtk4.1 wl-clipboard nodejs"
 
 
 def endpoint(function):
@@ -165,6 +168,17 @@ class Api:
         return {"filename": path.name, "prompt": prompt, "copied": self._copy_prompt(prompt)}
 
     def _copy_prompt(self, prompt):
+        if sys.platform.startswith("linux"):
+            for command in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+                if shutil.which(command[0]) and (command[0] != "wl-copy" or os.environ.get("WAYLAND_DISPLAY")):
+                    try:
+                        # wl-copy and xclip fork a helper that serves the clipboard; it must not hold our pipes.
+                        subprocess.run(command, input=prompt, text=True, encoding="utf-8", check=True, timeout=5,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        return True
+                    except (OSError, subprocess.SubprocessError):
+                        continue
+            return False
         if sys.platform != "win32" or not self._window:
             return False
         try:
@@ -218,28 +232,69 @@ class Api:
         return True
 
 
+def desktop_dialog(kind, title, message):
+    """Ask yes/no or show an error before the window exists: Tk, then zenity, then the terminal."""
+    if kind == "error":
+        print(f"{title}\n\n{message}", file=sys.stderr)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+    except Exception:  # Fedora ships Tk separately (python3-tkinter), or there is no display.
+        root = None
+    if root:
+        root.withdraw()
+        try:
+            if kind == "question":
+                return messagebox.askyesno(title, message, parent=root)
+            messagebox.showerror(title, message, parent=root)
+            return False
+        finally:
+            root.destroy()
+    # zenity waits forever when there is no display, so only use it inside a desktop session.
+    if shutil.which("zenity") and (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        result = subprocess.run(["zenity", "--question" if kind == "question" else "--error", "--no-markup",
+                                 "--width=460", "--title", title, "--text", message], capture_output=True)
+        return result.returncode == 0
+    if kind == "question":
+        print(f"{title}\n\n{message}\n\nNo dialog is available. To set up by hand, run:\n"
+              f"{PYTHON} -m pip install --target {DEPS} -r {ROOT / 'requirements.txt'}", file=sys.stderr)
+    return False
+
+
 def ensure_desktop():
     sys.path.insert(0, str(DEPS))
     try:
         return importlib.import_module("webview")
     except ImportError:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
+        pass
+    if not desktop_dialog("question", "Set up Apis", "Install Apis’ desktop interface from PyPI?\n\nIt stays inside this app’s folder. This is only needed once."):
+        return None
+    result = subprocess.run([str(PYTHON), "-m", "pip", "--disable-pip-version-check", "install",
+                             "--target", str(DEPS), "-r", str(ROOT / "requirements.txt")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace",
+                            creationflags=HIDE_CONSOLE, timeout=240)
+    if result.returncode:
+        raise RuntimeError("Setup could not finish.\n\n" + (result.stderr or result.stdout)[-1500:])
+    importlib.invalidate_caches()
+    return importlib.import_module("webview")
+
+
+def linux_gui():
+    """Choose pywebview's Linux backend: GTK + WebKitGTK from dnf, or Qt if it is installed."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
         try:
-            if not messagebox.askyesno("Set up Apis", "Install Apis’ desktop interface from PyPI?\n\nIt stays inside this app’s folder. This is only needed once.", parent=root):
-                return None
-            result = subprocess.run([str(PYTHON), "-m", "pip", "--disable-pip-version-check", "install",
-                                     "--target", str(DEPS), "-r", str(ROOT / "requirements.txt")],
-                                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                    creationflags=HIDE_CONSOLE, timeout=240)
-            if result.returncode:
-                raise RuntimeError("Setup could not finish.\n\n" + (result.stderr or result.stdout)[-1500:])
-            importlib.invalidate_caches()
-            return importlib.import_module("webview")
-        finally:
-            root.destroy()
+            gi.require_version("WebKit2", "4.1")
+        except ValueError:
+            gi.require_version("WebKit2", "4.0")
+        return "gtk"
+    except (ImportError, ValueError):
+        pass
+    if importlib.util.find_spec("qtpy") or (DEPS / "qtpy").is_dir():
+        return "qt"
+    raise RuntimeError("Apis needs GTK and WebKitGTK to open its window. Use the system Python (/usr/bin/python3).")
 
 
 def dark_titlebar(window):
@@ -258,6 +313,10 @@ def dark_titlebar(window):
 
 
 def main():
+    gui = "edgechromium" if sys.platform == "win32" else None
+    if sys.platform.startswith("linux"):
+        # webview.screens below already loads a backend, so pywebview must know the choice now.
+        gui = os.environ["PYWEBVIEW_GUI"] = (os.environ.get("PYWEBVIEW_GUI") or linux_gui()).lower()
     webview = ensure_desktop()
     if webview is None:
         return
@@ -268,17 +327,17 @@ def main():
                                    min_size=(860, 640), background_color="#19181F", text_select=True)
     api._window = window
     window.events.before_show += lambda: dark_titlebar(window)
-    webview.start(gui="edgechromium" if sys.platform == "win32" else None,
-                  icon=str(ROOT / "assets" / "apis.ico"))
+    if gui == "gtk":
+        from gi.repository import GLib
+        GLib.set_prgname("apis")  # The Wayland app id, so GNOME matches apis.desktop and its icon.
+    webview.start(gui=gui, icon=str(ROOT / "assets" / ("apis.ico" if sys.platform == "win32" else "apis.png")))
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror("Apis could not start", str(exc) + "\n\nApis needs Python and the Microsoft Edge WebView2 Runtime.", parent=root)
-        root.destroy()
+        hint = ("Apis needs Python and the Microsoft Edge WebView2 Runtime." if sys.platform == "win32"
+                else "On Fedora, install the desktop packages, then start Apis again:\n" + LINUX_PACKAGES)
+        desktop_dialog("error", "Apis could not start", f"{exc}\n\n{hint}")
+        sys.exit(1)

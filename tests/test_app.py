@@ -23,6 +23,9 @@ class DesktopWorkflowTests(unittest.TestCase):
             patcher = patch.object(app, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        patcher = patch.object(app.shutil, "which", return_value=None)  # Never touch the real clipboard.
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.api = app.Api()
         self.payload = {"url": "https://youtu.be/abcdefghijk", "title": "A useful idea",
                         "transcript": "0:05\nUse active recall.\n0:12\nReview it again tomorrow.",
@@ -122,6 +125,66 @@ class DesktopWorkflowTests(unittest.TestCase):
             opened.assert_not_called()
             self.assertTrue(self.api.open_external("youtube", self.payload["url"])["ok"])
             opened.assert_called_once_with("https://www.youtube.com/watch?v=abcdefghijk")
+
+    def linux_clipboard(self, available, environ, failing=()):
+        def run(command, **kwargs):
+            if command[0] in failing:
+                raise subprocess.CalledProcessError(1, command)
+            return SimpleNamespace(returncode=0)
+        with patch.object(app.sys, "platform", "linux"), patch.dict(app.os.environ, environ, clear=True), \
+                patch.object(app.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}" if name in available else None), \
+                patch.object(app.subprocess, "run", side_effect=run) as runner:
+            copied = self.api._copy_prompt("Prompt ✓")
+        return copied, [call.args[0][0] for call in runner.call_args_list], runner
+
+    def test_copy_prompt_linux_wayland_uses_wl_copy(self):
+        copied, commands, runner = self.linux_clipboard({"wl-copy", "xclip"}, {"WAYLAND_DISPLAY": "wayland-0"})
+        self.assertTrue(copied)
+        self.assertEqual(commands, ["wl-copy"])
+        self.assertEqual(runner.call_args.kwargs["input"], "Prompt ✓")
+        self.assertTrue(runner.call_args.kwargs["check"])
+
+    def test_copy_prompt_linux_falls_back_to_xclip(self):
+        copied, commands, runner = self.linux_clipboard({"wl-copy", "xclip"}, {"DISPLAY": ":0"})
+        self.assertTrue(copied)
+        self.assertEqual(runner.call_args.args[0], ["xclip", "-selection", "clipboard"])
+        copied, commands, _ = self.linux_clipboard({"wl-copy", "xclip"}, {"WAYLAND_DISPLAY": "w"}, failing={"wl-copy"})
+        self.assertEqual((copied, commands), (True, ["wl-copy", "xclip"]))
+
+    def test_copy_prompt_linux_none_available_returns_false(self):
+        copied, commands, _ = self.linux_clipboard(set(), {"WAYLAND_DISPLAY": "wayland-0"})
+        self.assertEqual((copied, commands), (False, []))
+        copied, commands, _ = self.linux_clipboard({"wl-copy", "xsel"}, {"WAYLAND_DISPLAY": "w"}, failing={"wl-copy", "xsel"})
+        self.assertEqual((copied, commands), (False, ["wl-copy", "xsel"]))
+
+    def test_linux_gui_prefers_gtk_then_qt_then_explains(self):
+        def gi(missing):
+            def require_version(name, version):
+                if (name, version) in missing or name in missing:
+                    raise ValueError(f"Namespace {name} not available")
+            return SimpleNamespace(require_version=require_version)
+        with patch.dict("sys.modules", {"gi": gi({("WebKit2", "4.1")})}):
+            self.assertEqual(app.linux_gui(), "gtk")
+        with patch.dict("sys.modules", {"gi": gi({"WebKit2"})}), patch.object(app.importlib.util, "find_spec", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "WebKitGTK"):
+                app.linux_gui()
+            (app.DEPS / "qtpy").mkdir(parents=True)
+            self.assertEqual(app.linux_gui(), "qt")
+
+    def test_desktop_dialog_falls_back_to_zenity(self):
+        with patch.dict("sys.modules", {"tkinter": None}), patch.object(app.shutil, "which", return_value="/usr/bin/zenity"), \
+                patch.dict(app.os.environ, {"WAYLAND_DISPLAY": "wayland-0"}, clear=True), \
+                patch.object(app.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as runner:
+            self.assertTrue(app.desktop_dialog("question", "Set up Apis", "Install <it> & go?"))
+        command = runner.call_args.args[0]
+        self.assertEqual(command[:3], ["zenity", "--question", "--no-markup"])
+        self.assertIn("Install <it> & go?", command)
+        with patch.dict("sys.modules", {"tkinter": None}), patch.object(app.shutil, "which", return_value="/usr/bin/zenity"), \
+                patch.dict(app.os.environ, {}, clear=True), patch.object(app.subprocess, "run") as runner, \
+                patch("sys.stderr") as stderr:
+            self.assertFalse(app.desktop_dialog("error", "Apis could not start", "Details"))
+        runner.assert_not_called()  # zenity hangs without a display.
+        self.assertIn("Details", "".join(call.args[0] for call in stderr.write.call_args_list))
 
     def test_invalid_settings_and_reset(self):
         for content in ("null", "[]", "{broken", '{"vault": 42}'):
