@@ -1,5 +1,7 @@
+from datetime import date
 import html
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -12,6 +14,7 @@ TIME = r"(?:\d{1,3}:)?\d{1,3}:[0-5]\d(?:[.,]\d{1,3})?"
 CUE = re.compile(rf"^({TIME})\s+-->\s+({TIME})(?:\s|$)")
 PASTED_TIME = re.compile(rf"^\[?({TIME})\]?(?:[ \t]+(.*))?$")
 WIKILINK = re.compile(r"(?<!!)\[\[([^\[\]\r\n]+)\]\]")
+YAML_LINE = re.compile(r"(?:\w[\w .-]*:(?:\s.*)?|[ \t-].*)?")
 WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)", re.I)
 
 
@@ -214,6 +217,15 @@ def tool_folder(vault, category):
     return folder
 
 
+def vault_markdown(vault):
+    """Yield the vault's Markdown files. Hidden folders (.obsidian, .git, .trash) are never entered."""
+    for folder, dirnames, filenames in os.walk(vault):
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for name in filenames:
+            if not name.startswith(".") and name.casefold().endswith(".md"):
+                yield Path(folder, name)
+
+
 def topic_names(vault):
     folder = tool_folder(vault, "Topics")
     return sorted((p.stem for p in folder.glob("*.md")), key=str.casefold)[:150]
@@ -269,17 +281,37 @@ def unwrap_note(raw):
     return match[2].strip() if match else raw
 
 
-def save_note(vault, url, title, raw):
+def frontmatter(fields):
+    """An Obsidian Properties block. Strings and lists are written as JSON, which is valid YAML."""
+    lines = [f"{key}: {value.isoformat() if isinstance(value, date) else json.dumps(value, ensure_ascii=False)}"
+             for key, value in fields.items()]
+    return "---\n" + "\n".join(lines) + "\n---\n"
+
+
+def leading_frontmatter(lines):
+    """The number of lines in a YAML block at the top of the body, or 0 (a leading --- may be a rule)."""
+    if not lines or lines[0].rstrip() != "---":
+        return 0
+    for index, line in enumerate(lines[1:], 1):
+        if line.rstrip() == "---":
+            return index + 1
+        if not YAML_LINE.fullmatch(line):
+            return 0
+    return 0
+
+
+def save_note(vault, url, title, raw, extra=None):
     url, identifier = video_url(url)
     body = unwrap_note(raw)
     if not body:
-        raise ValueError("Paste the Markdown returned by ChatGPT first.")
+        raise ValueError("Paste the Markdown from your AI model first.")
     note_folder = tool_folder(vault, "Notes")
     topic_folder = tool_folder(vault, "Topics")
     existing = {}
-    for path in vault.rglob("*.md"):
+    root = vault.resolve()
+    for path in vault_markdown(vault):
         relative = path.relative_to(vault)
-        if any(part.startswith(".") for part in relative.parts) or not path.resolve().is_relative_to(vault.resolve()):
+        if not path.resolve().is_relative_to(root):
             continue
         if path.parent == note_folder or any(c in relative.as_posix() for c in "#^[]|"):
             continue
@@ -311,7 +343,7 @@ def save_note(vault, url, title, raw):
                     file.write(f"# {name}\n\nSee **Backlinks** for videos and notes that mention this topic.\n")
                 created.append(topic)
             except FileExistsError:
-                if not topic.is_file() or not topic.resolve().is_relative_to(vault.resolve()):
+                if not topic.is_file() or not topic.resolve().is_relative_to(root):
                     raise ValueError(f"Cannot safely use the existing topic path for {name}.")
             existing.setdefault(key, []).append(topic)
         linked.add(topic)
@@ -338,7 +370,13 @@ def save_note(vault, url, title, raw):
 
     heading = " ".join(title.split()) or f"YouTube video {identifier}"
     name = safe_stem(heading, "YouTube video")
-    content = f"# {heading}\n\n[Watch on YouTube]({url})\n\n" + "\n".join(lines) + "\n"
+    header = f"# {heading}\n\n[Watch on YouTube]({url})\n\n"
+    own = leading_frontmatter(lines)
+    if own:  # Keep the note's own properties (moved to the top, where Obsidian reads them) instead of adding ours.
+        content = "\n".join(lines[:own]) + "\n" + header + "\n".join(lines[own:]).lstrip("\n") + "\n"
+    else:
+        properties = frontmatter({"source": url, "video_id": identifier, **(extra or {})})
+        content = properties + header + "\n".join(lines) + "\n"
     path = write_unique(note_folder, f"{name} ({identifier})", ".md", content)
     return path, len(linked), len(created)
 

@@ -2,21 +2,30 @@ APIS — YOUTUBE TO OBSIDIAN
 =========================
 
 Keep the useful parts of a video and connect them in your Obsidian vault.
-Apis runs locally. Use your own ChatGPT chat for the AI step; no API key is
-needed and Apis never uploads your transcripts to ChatGPT automatically.
+Apis runs locally. Use your own AI model (ChatGPT, Claude, Gemini…) for the
+AI step; no API key is needed and Apis never sends your transcripts to an AI
+service by itself.
 
 FIRST RUN
 
 1. Keep the entire app folder together, including web/, assets/, and
-   requirements.txt. Double-click "Start Apis.cmd".
+   requirements.txt.
+   Windows: double-click "Start Apis.cmd". Python 3.11+ with Tk and pip, and
+   the Microsoft Edge WebView2 Runtime, are required.
+   Fedora Linux: install the desktop packages once, then run ./start-apis.sh
+   from the app folder:
+     sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 \
+         webkit2gtk4.1 wl-clipboard nodejs
+   Run ./install-desktop-entry.sh once to add Apis to the app grid. Run it
+   again if you move the folder.
 2. On a new computer, Apis offers to install its desktop interface from PyPI
-   inside .packages/. This is a one-time setup. Python 3.11+ with Tk and pip,
-   and the Microsoft Edge WebView2 Runtime, are required on Windows.
-3. Click "Connect your vault" at the bottom, or choose your folder in the
-   Obsidian screen. Pick the folder you open as an Obsidian vault.
-4. Automatic YouTube captions also need Node.js 22+ or Deno 2.3+. The first
-   fetch offers to install the free yt-dlp caption reader inside the app.
-   Manual transcript import and Markdown saving work without Node or Deno.
+   inside .packages/. This is a one-time setup.
+3. In the Obsidian screen, click Choose folder and pick the folder you open as
+   an Obsidian vault. Apis remembers it for every video, even after a restart.
+4. Automatic YouTube captions also need Node.js 22+ or Deno 2.3+ (on Fedora,
+   the nodejs package above). The first fetch offers to install the free
+   yt-dlp caption reader inside the app. Manual transcript import and
+   Markdown saving work without Node or Deno.
 
 EACH VIDEO
 
@@ -24,29 +33,38 @@ EACH VIDEO
    Paste a YouTube link and click Get transcript. You can also paste captions
    or choose Import file to load a UTF-8 TXT, SRT, or VTT file. Expand Video
    details to edit the title or choose a caption language such as en or ms.
-   Leave language blank to choose automatically.
+   Leave language blank to choose automatically. A title you type is kept
+   when the captions load.
 
-2. CHATGPT
-   Click Read with ChatGPT. Choose Skim + deep dive, Just the essentials,
-   or Follow a question. Add your question or focus, then click
-   Save & copy prompt. Open folder to find the saved TXT.
-   In your ChatGPT chat, attach that file, paste the prompt, and send it.
-   Review important details against their timestamps.
+2. AI MODEL
+   Click Continue to AI model. Choose Skim + deep dive, Just the essentials,
+   or Follow a question (then type your question), and click
+   Save & copy prompt. Open folder shows the saved TXT. In your AI model's
+   chat, attach that file, paste the prompt, and send it. If the prompt was
+   not copied, use Copy the prompt manually. Review important details against
+   their timestamps.
 
 3. OBSIDIAN
-   Copy ChatGPT's Markdown into Your note, or use Import Markdown.
-   Choose your vault, then click Save & connect.
-   Open Obsidian's Graph view or a topic's Backlinks to explore connections.
+   Click Continue to Obsidian. Paste your AI model's Markdown into Your note,
+   or use Import Markdown. Check the vault, then click Save & connect.
+   Open in Obsidian opens the new note; Obsidian has to know the vault, so
+   open it there once first. Open saved folder shows the file. Explore the
+   connections in Obsidian's Graph view or a topic's Backlinks.
 
 Choose your vault before preparing the prompt to reuse existing YouTube topic
-names. Switching screens keeps your current text. Ctrl+L returns to the link.
-New video asks before clearing a transcript or note from the workspace.
+names. Switching screens keeps your current text. Ctrl + L returns to the
+link. New video asks before clearing a transcript or note from the workspace.
+It keeps your vault.
 
 WHAT GETS SAVED
 
   Transcripts/          Timestamped TXT files beside the app
   Vault/YouTube/Notes/  Video notes with source links
   Vault/YouTube/Topics/ Topic notes for new [[wikilinks]]
+
+Each note starts with Obsidian properties: source, video_id, saved (the
+date), and tags (youtube). If the pasted Markdown already starts with its own
+properties, Apis keeps those instead.
 
 Links belong in the note itself. For example: "Use [[Active recall]] to test
 yourself, then use [[Spaced repetition]] to schedule the next review."
@@ -55,11 +73,13 @@ note otherwise. Saving again creates a numbered copy rather than overwriting.
 
 IF CAPTIONS DO NOT LOAD
 
-Use the three-dot menu beside Import file to open the video or install/update
-the caption reader. In YouTube, choose Show transcript, copy the captions,
-and paste them into Apis. Some videos have no captions or restrict retrieval.
+Use the three-dot menu beside Import file to choose Open video or
+Install / update caption reader. In YouTube, choose Show transcript, copy the
+captions, and paste them into Apis. Some videos have no captions or restrict
+retrieval. If no captions match your caption language, Apis lists the
+available ones; clear the field to choose automatically.
 
-Captions only cover speech. Add screenshots to your ChatGPT request for charts,
+Captions only cover speech. Add screenshots to your AI model chat for charts,
 code, demonstrations, or other details that appear only on screen.
 
 DESIGN AND PRIVACY
@@ -68,7 +88,7 @@ The dark graphite/violet design uses coral accents, frosted panels, and original
 SVG artwork. DM Sans is bundled with its open font license; it loads locally.
 There are no remote font requests or analytics. Apis does not read browser
 cookies or sign in to YouTube. Settings, transcripts, and dependencies stay out
-of Git. The original Start YouTube to Obsidian.cmd launcher still works.
+of Git.
 
 Help:
 https://support.google.com/youtube/answer/15930243
