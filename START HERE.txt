@@ -38,11 +38,10 @@ EACH VIDEO
 
 2. AI MODEL
    Click Continue to AI model. Choose Skim + deep dive, Just the essentials,
-   or Follow a question (then type your question), and click
-   Save & copy prompt. Open folder shows the saved TXT. In your AI model's
-   chat, attach that file, paste the prompt, and send it. If the prompt was
-   not copied, use Copy the prompt manually. Review important details against
-   their timestamps.
+   or Follow a question (then type your question), and click Copy prompt.
+   The copied text already includes the transcript: paste it into your AI
+   model's chat and send it. If it was not copied, use Copy the prompt
+   manually. Review important details against their timestamps.
 
 3. OBSIDIAN
    Click Continue to Obsidian. Paste your AI model's Markdown into Your note,
@@ -51,16 +50,17 @@ EACH VIDEO
    open it there once first. Open saved folder shows the file. Explore the
    connections in Obsidian's Graph view or a topic's Backlinks.
 
-Choose your vault before preparing the prompt to reuse existing YouTube topic
-names. Switching screens keeps your current text. Ctrl + L returns to the
+Choose your vault before copying the prompt to reuse topic names from your
+earlier video notes. Switching screens keeps your current text. Ctrl + L returns to the
 link. New video asks before clearing a transcript or note from the workspace.
 It keeps your vault.
 
 WHAT GETS SAVED
 
-  Transcripts/          Timestamped TXT files beside the app
   Vault/YouTube/Notes/  Video notes with source links
-  Vault/YouTube/Topics/ Topic notes for new [[wikilinks]]
+
+That is the only folder Apis writes to. Transcripts are not saved; the copied
+prompt carries them to your AI model.
 
 Each note starts with Obsidian properties: source, video_id, saved (the
 date), and tags (youtube). If the pasted Markdown already starts with its own
@@ -68,8 +68,32 @@ properties, Apis keeps those instead.
 
 Links belong in the note itself. For example: "Use [[Active recall]] to test
 yourself, then use [[Spaced repetition]] to schedule the next review."
-Apis reuses matching vault notes where it can identify one and creates a topic
-note otherwise. Saving again creates a numbered copy rather than overwriting.
+Apis keeps links as written and creates no topic files. Obsidian connects a
+link to any note with that name, and a topic without a note still appears in
+the graph; click it in Obsidian to create the note. Saving again creates a
+numbered copy rather than overwriting.
+
+OPEN IN OBSIDIAN WITH THE APPIMAGE
+
+The Open in Obsidian button sends an obsidian:// link. The Flatpak and RPM
+builds of Obsidian handle these links; the AppImage does not by itself. Create
+~/.local/share/applications/obsidian.desktop containing (use your AppImage's
+full path):
+
+  [Desktop Entry]
+  Type=Application
+  Name=Obsidian
+  Exec=/full/path/to/Obsidian.AppImage %u
+  Icon=obsidian
+  Terminal=false
+  MimeType=x-scheme-handler/obsidian;
+
+then run:
+
+  update-desktop-database ~/.local/share/applications
+  xdg-mime default obsidian.desktop x-scheme-handler/obsidian
+
+Update Exec if you move or rename the AppImage.
 
 IF CAPTIONS DO NOT LOAD
 
@@ -87,8 +111,7 @@ DESIGN AND PRIVACY
 The dark graphite/violet design uses coral accents, frosted panels, and original
 SVG artwork. DM Sans is bundled with its open font license; it loads locally.
 There are no remote font requests or analytics. Apis does not read browser
-cookies or sign in to YouTube. Settings, transcripts, and dependencies stay out
-of Git.
+cookies or sign in to YouTube. Settings and dependencies stay out of Git.
 
 Help:
 https://support.google.com/youtube/answer/15930243

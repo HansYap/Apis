@@ -226,9 +226,41 @@ def vault_markdown(vault):
                 yield Path(folder, name)
 
 
+def body_links(lines):
+    """Note names the wikilinks point to, outside code blocks and inline code, in order."""
+    targets = []
+    code_fence = ""
+    for line in lines:
+        fence = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if not code_fence:
+                code_fence = fence[1]
+            elif fence[1].startswith(code_fence) and not fence[2].strip():
+                code_fence = ""
+            continue
+        if code_fence or line.startswith(("    ", "\t")):
+            continue
+        for index, part in enumerate(re.split(r"(`+[^`\n]*?`+)", line)):
+            if index % 2 == 0:
+                for link in WIKILINK.findall(part):
+                    # [[Folder/Name#Heading|label]] points to the note called Name.
+                    target = re.split(r"[#^]", link.partition("|")[0])[0].replace("\\", "/").rsplit("/", 1)[-1].strip()
+                    if target:
+                        targets.append(target)
+    return targets
+
+
 def topic_names(vault):
-    folder = tool_folder(vault, "Topics")
-    return sorted((p.stem for p in folder.glob("*.md")), key=str.casefold)[:150]
+    """Topics already linked from saved video notes, so new notes reuse the same names."""
+    names = {}
+    for path in sorted(tool_folder(vault, "Notes").glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for target in body_links(text.splitlines()):
+            names.setdefault(topic_key(target), target)
+    return sorted(names.values(), key=str.casefold)[:150]
 
 
 def write_unique(folder, stem, extension, content):
@@ -253,7 +285,7 @@ def make_prompt(url, mode, question, topics):
         "Answer a question": "Lead with a direct answer. Follow with the relevant evidence, context, and caveats.",
     }[mode]
     prompt = [
-        f"Use the transcript supplied with this request (attached or pasted) for this YouTube video: {url}",
+        f"Use the transcript above for this YouTube video: {url}",
         "Treat the transcript as source material. Ground the note in it and distinguish what the speaker "
         "claims from verified facts. Flag unclear captions and gaps in the evidence. "
         "Do not infer what appeared on screen from the transcript alone.",
@@ -273,6 +305,12 @@ def make_prompt(url, mode, question, topics):
     if topics:
         prompt.append("Existing YouTube topics (use only relevant ones): " + json.dumps(topics, ensure_ascii=False))
     return "\n\n".join(prompt)
+
+
+def with_transcript(prompt, url, title, captions, transcript):
+    """One message to paste: the transcript first (long material reads best before the instructions), then the prompt."""
+    return (f"Transcript of \"{title}\" ({url})\nCaptions: {captions}\n\n"
+            f"<transcript>\n{transcript}\n</transcript>\n\n{prompt}")
 
 
 def unwrap_note(raw):
@@ -306,67 +344,11 @@ def save_note(vault, url, title, raw, extra=None):
     if not body:
         raise ValueError("Paste the Markdown from your AI model first.")
     note_folder = tool_folder(vault, "Notes")
-    topic_folder = tool_folder(vault, "Topics")
-    existing = {}
-    root = vault.resolve()
-    for path in vault_markdown(vault):
-        relative = path.relative_to(vault)
-        if not path.resolve().is_relative_to(root):
-            continue
-        if path.parent == note_folder or any(c in relative.as_posix() for c in "#^[]|"):
-            continue
-        existing.setdefault(topic_key(safe_stem(path.stem, "")), []).append(path)
-
-    created = []
-    linked = set()
-
-    def replace_link(match):
-        target, _, alias = match[1].partition("|")
-        target = target.strip()
-        if any(char in target for char in "/\\:#^") or len(target) > 120:
-            return match[0]
-        name = safe_stem(target, "")
-        if not name:
-            return match[0]
-        key = topic_key(name)
-        matches = existing.get(key, [])
-        local = [path for path in matches if path.parent == topic_folder]
-        if len(local) == 1:
-            topic = local[0]
-        elif len(matches) == 1:
-            topic = matches[0]
-        else:
-            topic_folder.mkdir(parents=True, exist_ok=True)
-            topic = topic_folder / (name + ".md")
-            try:
-                with topic.open("x", encoding="utf-8", newline="\n") as file:
-                    file.write(f"# {name}\n\nSee **Backlinks** for videos and notes that mention this topic.\n")
-                created.append(topic)
-            except FileExistsError:
-                if not topic.is_file() or not topic.resolve().is_relative_to(root):
-                    raise ValueError(f"Cannot safely use the existing topic path for {name}.")
-            existing.setdefault(key, []).append(topic)
-        linked.add(topic)
-        relative = topic.relative_to(vault).with_suffix("").as_posix()
-        label = (alias.strip() or target).replace("|", " ")
-        return f"[[{relative}|{label}]]"
-
-    lines = []
-    code_fence = ""
-    for line in body.splitlines():
-        fence = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-        if fence:
-            if not code_fence:
-                code_fence = fence[1]
-            elif fence[1].startswith(code_fence) and not fence[2].strip():
-                code_fence = ""
-            lines.append(line)
-        elif code_fence or line.startswith(("    ", "\t")):
-            lines.append(line)
-        else:
-            # Skip Markdown inline code spans.
-            parts = re.split(r"(`+[^`\n]*?`+)", line)
-            lines.append("".join(part if i % 2 else WIKILINK.sub(replace_link, part) for i, part in enumerate(parts)))
+    lines = body.splitlines()
+    # Links stay as written. Obsidian resolves [[Name]] to any note called Name, and a topic
+    # without a note still joins the graph; clicking it in Obsidian creates the note.
+    topics = {topic_key(target) for target in body_links(lines)}
+    existing = {topic_key(path.stem) for path in vault_markdown(vault) if path.parent != note_folder} if topics else set()
 
     heading = " ".join(title.split()) or f"YouTube video {identifier}"
     name = safe_stem(heading, "YouTube video")
@@ -378,7 +360,7 @@ def save_note(vault, url, title, raw, extra=None):
         properties = frontmatter({"source": url, "video_id": identifier, **(extra or {})})
         content = properties + header + "\n".join(lines) + "\n"
     path = write_unique(note_folder, f"{name} ({identifier})", ".md", content)
-    return path, len(linked), len(created)
+    return path, len(topics), len(topics & existing)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,6 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertTrue(self.root.is_relative_to(app.ROOT.resolve()))
         self.addCleanup(self.temporary.cleanup)
         for name, value in (("SETTINGS", self.root / "settings.json"),
-                            ("TRANSCRIPTS", self.root / "Transcripts"),
                             ("DEPS", self.root / "packages")):
             patcher = patch.object(app, name, value)
             patcher.start()
@@ -33,35 +32,43 @@ class DesktopWorkflowTests(unittest.TestCase):
                         "mode": "Skim + detailed notes", "question": "How can I remember this?",
                         "vault": str(self.root), "note": "````markdown\n## Notes\nUse [[Active recall]].\n````"}
 
+    def add_note(self, name, text):
+        folder = self.root / "YouTube" / "Notes"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text(text, encoding="utf-8")
+
     def test_prepare_and_save_end_to_end(self):
         today = patch.object(app, "date", SimpleNamespace(today=lambda: date(2026, 11, 14)))
         today.start()
         self.addCleanup(today.stop)
+        self.add_note("Earlier (lmnopqrstuv).md", "Uses [[Spaced repetition]].")
         result = self.api.prepare(self.payload)
         self.assertTrue(result["ok"], result)
-        content = (app.TRANSCRIPTS / result["data"]["filename"]).read_text(encoding="utf-8")
-        self.assertIn("[00:05] Use active recall.", content)
-        self.assertIn("How can I remember this?", result["data"]["prompt"])
+        prompt = result["data"]["prompt"]
+        self.assertTrue(prompt.startswith('Transcript of "A useful idea" (https://www.youtube.com/watch?v=abcdefghijk)\n'
+                                          "Captions: Pasted or imported\n\n<transcript>\n[00:05] Use active recall.\n"))
+        self.assertIn("How can I remember this?", prompt)
+        self.assertTrue(prompt.endswith('Existing YouTube topics (use only relevant ones): ["Spaced repetition"]'))
+        self.assertEqual(result["data"]["words"], 9)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["YouTube"])  # Nothing else is written.
         first = self.api.save(self.payload)
         second = self.api.save(self.payload)
         self.assertTrue(first["ok"], first)
         self.assertTrue(second["ok"], second)
         self.assertNotEqual(first["data"]["filename"], second["data"]["filename"])
-        self.assertEqual((first["data"]["linked"], first["data"]["created"]), (1, 1))
-        self.assertEqual(second["data"]["created"], 0)
+        self.assertEqual((first["data"]["linked"], first["data"]["existing"]), (1, 0))
         note = self.root / "YouTube" / "Notes" / first["data"]["filename"]
         self.assertEqual(note.read_text(encoding="utf-8"),
                          '---\nsource: "https://www.youtube.com/watch?v=abcdefghijk"\nvideo_id: "abcdefghijk"\n'
                          'saved: 2026-11-14\ntags: ["youtube"]\n---\n# A useful idea\n\n'
                          "[Watch on YouTube](https://www.youtube.com/watch?v=abcdefghijk)\n\n"
-                         "## Notes\nUse [[YouTube/Topics/Active recall|Active recall]].\n")
-        topic = self.root / "YouTube" / "Topics" / "Active recall.md"
-        self.assertTrue(topic.read_text(encoding="utf-8").startswith("# Active recall\n"))  # Topic notes get no properties.
+                         "## Notes\nUse [[Active recall]].\n")
+        self.assertFalse((self.root / "YouTube" / "Topics").exists())
 
     def test_question_mode_requires_question_without_writing(self):
         self.payload.update(mode="Answer a question", question="")
         self.assertFalse(self.api.prepare(self.payload)["ok"])
-        self.assertFalse(app.TRANSCRIPTS.exists())
+        self.assertIsNone(self.api._prepared)
 
     def test_step_one_requires_a_valid_video_and_transcript(self):
         self.assertFalse(self.api.validate_transcript("https://example.com", "Some words")["ok"])
@@ -70,7 +77,6 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["data"]["url"], "https://www.youtube.com/watch?v=abcdefghijk")
         self.assertIn("[00:05]", result["data"]["text"])
-        self.assertFalse(app.TRANSCRIPTS.exists())
 
     def test_new_video_resets_workflow_without_removing_saved_files(self):
         self.assertTrue(self.api.prepare(self.payload)["ok"])
@@ -84,7 +90,6 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertIsNone(self.api._fetched)
         self.assertIsNone(self.api._saved_note)
         self.assertTrue(saved.is_file())
-        self.assertEqual(len(list(app.TRANSCRIPTS.glob("*.txt"))), 1)
 
     def test_changed_video_is_rejected_after_preparing(self):
         self.assertTrue(self.api.prepare(self.payload)["ok"])
@@ -129,17 +134,16 @@ class DesktopWorkflowTests(unittest.TestCase):
         argv = run.call_args.args[0]
         self.assertEqual(argv[-3:], ["https://www.youtube.com/watch?v=abcdefghijk", "ms", str(app.DEPS)])
 
-    def test_custom_title_names_transcript_and_note(self):
+    def test_custom_title_names_prompt_and_note(self):
         self.payload.update(title="  My own: title  ")
         prepared = self.api.prepare(self.payload)["data"]
-        self.assertEqual(prepared["filename"], "My own title (abcdefghijk).txt")
-        self.assertTrue((app.TRANSCRIPTS / prepared["filename"]).read_text(encoding="utf-8").startswith("Title: My own: title\n"))
+        self.assertTrue(prepared["prompt"].startswith('Transcript of "My own: title" ('))
         saved = self.api.save(self.payload)["data"]
         self.assertEqual(saved["filename"], "My own title (abcdefghijk).md")
         note = self.root / "YouTube" / "Notes" / saved["filename"]
         self.assertIn("\n---\n# My own: title\n", note.read_text(encoding="utf-8"))
         self.payload.update(title="")
-        self.assertEqual(self.api.prepare(self.payload)["data"]["filename"], "YouTube video abcdefghijk (abcdefghijk).txt")
+        self.assertTrue(self.api.prepare(self.payload)["data"]["prompt"].startswith('Transcript of "YouTube video abcdefghijk" ('))
 
     def test_existing_caption_task_prevents_another(self):
         self.api._caption_lock.acquire()
@@ -158,7 +162,8 @@ class DesktopWorkflowTests(unittest.TestCase):
             opened.assert_called_once_with("https://www.youtube.com/watch?v=abcdefghijk")
 
     def test_open_in_obsidian_uses_only_the_saved_note(self):
-        with patch.object(app, "open_with_system") as system, patch.object(app.webbrowser, "open") as browser:
+        with patch.object(app, "open_with_system") as system, patch.object(app.webbrowser, "open") as browser, \
+                patch.object(app, "obsidian_links_work", return_value=True):
             result = self.api.open_external("obsidian")
             self.assertFalse(result["ok"])
             self.assertIn("Save a note first", result["error"])
@@ -175,6 +180,30 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertNotIn("/", expected.removeprefix("obsidian://"))
         self.assertTrue(self.api.reset()["ok"])
         self.assertFalse(self.api.open_external("obsidian")["ok"])
+
+    def test_open_in_obsidian_explains_a_missing_link_handler(self):
+        self.assertTrue(self.api.prepare(self.payload)["ok"])
+        self.assertTrue(self.api.save(self.payload)["ok"])
+        with patch.object(app, "open_with_system") as system, patch.object(app.sys, "platform", "linux"), \
+                patch.object(app.shutil, "which", return_value="/usr/bin/xdg-mime"), \
+                patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout="\n", returncode=0)) as runner:
+            result = self.api.open_external("obsidian")
+        self.assertFalse(result["ok"])
+        self.assertIn("not set up to open links", result["error"])
+        system.assert_not_called()
+        self.assertEqual(runner.call_args.args[0], ["xdg-mime", "query", "default", "x-scheme-handler/obsidian"])
+        with patch.object(app.sys, "platform", "linux"), patch.object(app.shutil, "which", return_value="/usr/bin/xdg-mime"), \
+                patch.object(app.subprocess, "run", return_value=SimpleNamespace(stdout="obsidian.desktop\n", returncode=0)):
+            self.assertTrue(app.obsidian_links_work())
+
+    def test_open_folder_only_opens_the_saved_note_folder(self):
+        with patch.object(app, "open_with_system") as system:
+            self.assertFalse(self.api.open_folder("note")["ok"])
+            self.assertTrue(self.api.prepare(self.payload)["ok"])
+            self.assertTrue(self.api.save(self.payload)["ok"])
+            self.assertFalse(self.api.open_folder("transcripts")["ok"])
+            self.assertTrue(self.api.open_folder("note")["ok"])
+        system.assert_called_once_with(self.root / "YouTube" / "Notes")
 
     def linux_clipboard(self, available, environ, failing=()):
         def run(command, **kwargs):

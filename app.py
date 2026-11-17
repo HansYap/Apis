@@ -14,11 +14,10 @@ import threading
 from urllib.parse import quote
 import webbrowser
 
-from caption_core import clean_transcript, make_prompt, safe_stem, save_note, topic_names, video_url, write_unique
+from caption_core import clean_transcript, make_prompt, save_note, topic_names, video_url, with_transcript
 
 ROOT = Path(__file__).resolve().parent
 DEPS = ROOT / ".packages"
-TRANSCRIPTS = ROOT / "Transcripts"
 SETTINGS = ROOT / "settings.json"
 MODES = ("Skim + detailed notes", "Quick skim", "Answer a question")
 HIDE_CONSOLE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -45,6 +44,18 @@ def open_with_system(target):
         os.startfile(target)
     else:
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(target)])
+
+
+def obsidian_links_work():
+    """On Linux, obsidian:// links only open if an app claims them (an AppImage does not by itself)."""
+    if not sys.platform.startswith("linux") or not shutil.which("xdg-mime"):
+        return True
+    try:
+        result = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/obsidian"],
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return bool(result.stdout.strip())
 
 
 def vault_path(raw):
@@ -171,11 +182,9 @@ class Api:
         title = payload.get("title", "").strip() or f"YouTube video {identifier}"
         topics = topic_names(vault_path(payload["vault"])) if payload.get("vault", "").strip() else []
         track = self._fetched[1] if self._fetched and self._fetched[0] == url and self._fetched[2] == text else "Pasted or imported"
-        prompt = make_prompt(url, mode, question, topics)
-        content = f"Title: {title}\nSource: {url}\nCaptions: {track}\n\n{text}\n"
-        path = write_unique(TRANSCRIPTS, f"{safe_stem(title, 'Video')} ({identifier})", ".txt", content)
+        prompt = with_transcript(make_prompt(url, mode, question, topics), url, title, track, text)
         self._prepared = (url, title)
-        return {"filename": path.name, "prompt": prompt, "copied": self._copy_prompt(prompt)}
+        return {"prompt": prompt, "words": len(text.split()), "copied": self._copy_prompt(prompt)}
 
     def _copy_prompt(self, prompt):
         if sys.platform.startswith("linux"):
@@ -207,21 +216,16 @@ class Api:
             raise ValueError("The video link changed after you prepared the transcript. Check it before saving.")
         title = payload.get("title", "").strip() or (self._prepared[1] if self._prepared else "")
         self._remember_vault(vault)
-        path, linked, created = save_note(vault, url, title, payload.get("note", ""),
-                                          extra={"saved": date.today(), "tags": ["youtube"]})
+        path, linked, existing = save_note(vault, url, title, payload.get("note", ""),
+                                           extra={"saved": date.today(), "tags": ["youtube"]})
         self._saved_note = path
-        return {"filename": path.name, "linked": linked, "created": created}
+        return {"filename": path.name, "linked": linked, "existing": existing}
 
     @endpoint
     def open_folder(self, kind):
-        if kind == "transcripts":
-            folder = TRANSCRIPTS
-        elif kind == "note" and self._saved_note:
-            folder = self._saved_note.parent
-        else:
+        if kind != "note" or not self._saved_note:
             raise ValueError("Save a note first, then open its folder.")
-        folder.mkdir(parents=True, exist_ok=True)
-        open_with_system(folder)
+        open_with_system(self._saved_note.parent)
         return True
 
     @endpoint
@@ -230,6 +234,9 @@ class Api:
             # Only the note Apis just saved; the link from the page is ignored.
             if not self._saved_note:
                 raise ValueError("Save a note first, then open it in Obsidian.")
+            if not obsidian_links_work():
+                raise ValueError("Obsidian is not set up to open links on this computer. An AppImage needs a "
+                                 "desktop entry for obsidian:// links; see START HERE.txt. Open saved folder still works.")
             open_with_system("obsidian://open?path=" + quote(str(self._saved_note), safe=""))
             return True
         if destination == "youtube":
