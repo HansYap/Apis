@@ -8,6 +8,7 @@ let currentStep = "transcript";
 let highestStep = 0;
 let preparedSignature = null;
 let vaultPath = "";
+let noteSaved = false;  // The current note is in the vault; saving again would only add a numbered copy.
 const steps = ["transcript", "prompt", "save"];
 const launcher = navigator.userAgent.includes("Windows") ? "Start Apis.cmd" : "start-apis.sh";
 const formFields = ["video-url", "video-title", "transcript", "question", "note"];
@@ -31,6 +32,7 @@ function setBusy(value) {
     node.disabled = value;
   });
   $("continue-save").disabled = value || !preparedSignature;
+  $("save").disabled = value || noteSaved;
   $("tools-menu").hidden = true;
   $("tools-toggle").setAttribute("aria-expanded", "false");
 }
@@ -86,10 +88,21 @@ function signature() {
   return JSON.stringify([data.url, data.title, data.transcript, data.mode, data.question]);
 }
 
+function markSaved(saved) {
+  noteSaved = saved;
+  const button = $("save");
+  button.classList.toggle("done", saved);
+  button.disabled = saved || busy;
+  button.querySelector("span").textContent = saved ? "Saved to Obsidian" : "Save & connect";
+  button.querySelector("use").setAttribute("href", saved ? "#check" : "#arrow");
+  if (!saved) $("saved-result").hidden = true;
+}
+
 function invalidatePreparation() {
   preparedSignature = null;
   highestStep = Math.min(highestStep, 1);
-  for (const name of ["prepared-result", "saved-result", "prompt-fallback"]) $(name).hidden = true;
+  markSaved(false);
+  for (const name of ["prepared-result", "prompt-fallback"]) $(name).hidden = true;
   $("generated-prompt").value = "";
   $("prepared-file").textContent = "";
   $("continue-save").disabled = true;
@@ -151,6 +164,7 @@ async function chooseVault() {
   await run("Choose the folder you open in Obsidian…", async () => {
     const result = await api("choose_vault");
     if (result) {
+      if (result.vault !== vaultPath) markSaved(false);  // A different vault does not have this note yet.
       vaultPath = result.vault;
       updateContext();
       status("Vault connected. Your ideas have a place to land.");
@@ -164,7 +178,7 @@ async function importFile(kind) {
     if (result) {
       $(kind === "transcript" ? "transcript" : "note").value = result.text;
       if (kind === "transcript") invalidatePreparation();
-      else $("saved-result").hidden = true;
+      else markSaved(false);
       updateContext();
       status(`Imported ${result.name}.`);
     } else status("Import cancelled.");
@@ -199,7 +213,7 @@ async function prepare() {
 }
 
 async function saveNote() {
-  if (currentStep !== "save" || preparedSignature !== signature()) return;
+  if (currentStep !== "save" || preparedSignature !== signature() || noteSaved) return;
   if (!requireVideo()) return;
   if (!vaultPath) { $("choose-vault").focus(); status("Choose your Obsidian vault folder first.", "error"); return; }
   if (!$("note").value.trim()) { $("note").focus(); status("Paste the Markdown from your AI model before saving.", "error"); return; }
@@ -211,6 +225,8 @@ async function saveNote() {
       ? `${topics(result.linked)} linked` + (result.existing ? ` · ${result.existing} already in your vault` : "")
       : "Saved. Add [[Topic links]] in your note to create graph connections.";
     $("saved-result").hidden = false;
+    markSaved(true);
+    $("saved-result").scrollIntoView({block: "nearest", behavior: "smooth"});
     status("Saved to your vault. Another idea, connected.");
     updateContext();
   });
@@ -245,7 +261,7 @@ async function reset() {
 formFields.forEach((name) => $(name).addEventListener("input", () => {
   if (name === "video-url") $("video-title").value = "";  // A new video needs a new title.
   if (name !== "note") invalidatePreparation();
-  else $("saved-result").hidden = true;
+  else markSaved(false);
   updateContext();
 }));
 $("link-form").addEventListener("submit", fetchTranscript);
@@ -314,6 +330,8 @@ async function initialize() {
     status("A little curiosity goes a long way.");
   } catch (error) { status(error.message, "error"); }
 }
+// The pinned header gets its backing only once content scrolls under it.
+window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 4), {passive: true});
 window.addEventListener("pywebviewready", initialize);
 if (window.pywebview?.api) initialize();
 setTimeout(() => { if (!ready) status(`Design preview · Open ${launcher} to work with captions and local files.`); }, 1200);
