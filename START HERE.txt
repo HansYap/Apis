@@ -75,8 +75,8 @@ numbered copy rather than overwriting.
 
 OPEN IN OBSIDIAN WITH THE APPIMAGE
 
-The Open in Obsidian button sends an obsidian:// link. The Flatpak and RPM
-builds of Obsidian handle these links; the AppImage does not by itself. Create
+The Open in Obsidian button sends an obsidian:// link. The Flatpak build
+of Obsidian (Flathub) handles these links; the AppImage does not by itself. Create
 ~/.local/share/applications/obsidian.desktop containing (use your AppImage's
 full path):
 

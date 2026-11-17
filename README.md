@@ -22,7 +22,7 @@ sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 webkit2gtk4.1 
 Then run `./start-apis.sh`. Run `./install-desktop-entry.sh` once to add Apis to the app grid
 (run it again if you move the folder).
 
-**Open in Obsidian** uses `obsidian://` links. The Flatpak and RPM builds of Obsidian handle them;
+**Open in Obsidian** uses `obsidian://` links. The Flatpak build of Obsidian (Flathub) handles them;
 the AppImage does not until it has a desktop entry. See *Open in Obsidian with the AppImage* in `START HERE.txt`.
 
 On its first launch, Apis offers to install its desktop renderer (pywebview) inside
