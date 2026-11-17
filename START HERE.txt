@@ -46,6 +46,8 @@ EACH VIDEO
 3. OBSIDIAN
    Click Continue to Obsidian. Paste your AI model's Markdown into Your note,
    or use Import Markdown. Check the vault, then click Save & connect.
+   The button turns into Saved to Obsidian once the note is in your vault;
+   it unlocks again if you edit the note or choose another vault.
    Open in Obsidian opens the new note; Obsidian has to know the vault, so
    open it there once first. Open saved folder shows the file. Explore the
    connections in Obsidian's Graph view or a topic's Backlinks.
