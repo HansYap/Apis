@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from caption_core import (choose_track, clean_transcript, frontmatter, make_prompt, parse_json3, parse_subtitle_file,
-                          safe_stem, save_note, unwrap_note, vault_markdown, video_url)
+                          safe_stem, save_note, topic_names, unwrap_note, vault_markdown, video_url, with_transcript)
 
 ID = "abcdefghijk"
 URL = f"https://www.youtube.com/watch?v={ID}"
@@ -147,8 +147,8 @@ class SaveNoteTests(unittest.TestCase):
         self.vault = Path(temporary.name).resolve()
 
     def save(self, body, title="A useful idea"):
-        path, linked, created = save_note(self.vault, URL, title, body)
-        return path, path.read_text(encoding="utf-8"), linked, created
+        path, linked, existing = save_note(self.vault, URL, title, body)
+        return path, path.read_text(encoding="utf-8"), linked, existing
 
     def add(self, relative, content="# Existing\n"):
         path = self.vault / relative
@@ -156,76 +156,74 @@ class SaveNoteTests(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         return path
 
-    def test_new_topic_is_created_and_linked(self):
-        path, text, linked, created = self.save("````markdown\n## Notes\nUse [[Active recall]] and [[Spaced repetition|spacing]].\n````")
+    def test_links_are_kept_as_written_and_no_topic_files_are_made(self):
+        path, text, linked, existing = self.save("````markdown\n## Notes\nUse [[Active recall]] and [[Spaced repetition|spacing]].\n````")
         self.assertEqual(path, self.vault / "YouTube" / "Notes" / f"A useful idea ({ID}).md")
         self.assertEqual(text, f'---\nsource: "{URL}"\nvideo_id: "{ID}"\n---\n'
                                f"# A useful idea\n\n[Watch on YouTube]({URL})\n\n## Notes\n"
-                               "Use [[YouTube/Topics/Active recall|Active recall]] and "
-                               "[[YouTube/Topics/Spaced repetition|spacing]].\n")
-        self.assertEqual((linked, created), (2, 2))
-        topic = self.vault / "YouTube" / "Topics" / "Active recall.md"
-        self.assertEqual(topic.read_text(encoding="utf-8"),
-                         "# Active recall\n\nSee **Backlinks** for videos and notes that mention this topic.\n")
+                               "Use [[Active recall]] and [[Spaced repetition|spacing]].\n")
+        self.assertEqual((linked, existing), (2, 0))
+        self.assertEqual(sorted(p.relative_to(self.vault).as_posix() for p in self.vault.rglob("*") if p.is_file()),
+                         [f"YouTube/Notes/A useful idea ({ID}).md"])
 
-    def test_existing_topic_note_is_reused_case_insensitively(self):
-        self.add("YouTube/Topics/Active Recall.md")
-        _, text, linked, created = self.save("Use [[active recall]].")
-        self.assertIn("[[YouTube/Topics/Active Recall|active recall]]", text)
-        self.assertEqual((linked, created), (1, 0))
+    def test_topics_matching_vault_notes_are_counted_case_insensitively(self):
+        self.add("Areas/Active Recall.md")
+        self.add("Projects/Spacing.md")
+        self.add("Projects/Spacing copy/Spacing.md")
+        _, text, linked, existing = self.save("Use [[active recall]], [[Spacing#Why]], [[active recall|again]] and [[New idea]].")
+        self.assertIn("Use [[active recall]], [[Spacing#Why]], [[active recall|again]] and [[New idea]].", text)
+        self.assertEqual((linked, existing), (3, 2))
 
-    def test_unique_note_elsewhere_is_reused(self):
-        self.add("Areas/Topic.md")
-        _, text, linked, created = self.save("About [[Topic]].")
-        self.assertIn("[[Areas/Topic|Topic]]", text)
-        self.assertEqual((linked, created), (1, 0))
-        self.assertFalse((self.vault / "YouTube" / "Topics").exists())
-
-    def test_ambiguous_notes_elsewhere_create_a_topic_note(self):
-        self.add("Areas/Topic.md")
-        self.add("Projects/Topic.md")
-        _, text, _, created = self.save("About [[Topic]].")
-        self.assertIn("[[YouTube/Topics/Topic|Topic]]", text)
-        self.assertEqual(created, 1)
-
-    def test_topic_folder_wins_over_notes_elsewhere(self):
-        self.add("Areas/Topic.md")
-        self.add("Projects/Topic.md")
-        self.add("YouTube/Topics/Topic.md")
-        _, text, _, created = self.save("About [[Topic]].")
-        self.assertIn("[[YouTube/Topics/Topic|Topic]]", text)
-        self.assertEqual(created, 0)
-
-    def test_saved_video_notes_are_not_link_targets(self):
+    def test_saved_video_notes_and_hidden_folders_do_not_count_as_existing(self):
         self.add(f"YouTube/Notes/Topic ({ID}).md")
         self.add("YouTube/Notes/Topic.md")
-        _, text, _, created = self.save("About [[Topic]].")
-        self.assertIn("[[YouTube/Topics/Topic|Topic]]", text)
-        self.assertEqual(created, 1)
+        self.add(".obsidian/Hidden.md")
+        self.assertEqual(self.save("About [[Topic]] and [[Hidden]].")[2:], (2, 0))
 
-    def test_code_is_not_rewritten(self):
+    def test_code_is_not_counted(self):
         body = ("Use [[Linked]].\n```\n[[Fenced]]\n```\n~~~~text\n[[Tilde]]\n~~~~\n"
                 "Inline `[[Code]]` and ``[[Double]]`` stay.\n    [[Indented]]\n\t[[Tabbed]]")
-        _, text, linked, created = self.save(body)
-        for kept in ("```\n[[Fenced]]\n```", "[[Tilde]]", "`[[Code]]`", "``[[Double]]``",
-                     "    [[Indented]]", "\t[[Tabbed]]"):
-            self.assertIn(kept, text)
-        self.assertIn("[[YouTube/Topics/Linked|Linked]]", text)
-        self.assertEqual((linked, created), (1, 1))
+        _, text, linked, _ = self.save(body)
+        self.assertTrue(text.endswith(body + "\n"))
+        self.assertEqual(linked, 1)
 
     def test_unusual_links_are_left_alone(self):
         body = "![[embed]] [[Folder/Note]] [[Note#Heading]] [[Note^block]] [[C:\\x]] [[Back\\slash]] [[" + "x" * 121 + "]]"
-        _, text, linked, created = self.save(body)
+        _, text, _, _ = self.save(body)
         self.assertTrue(text.endswith(body + "\n"))
-        self.assertEqual((linked, created), (0, 0))
 
-    def test_hidden_folders_are_not_link_targets(self):
-        self.add(".obsidian/Active recall.md")
-        self.add(".trash/Spacing.md")
-        _, text, _, created = self.save("[[Active recall]] [[Spacing]]")
-        self.assertIn("[[YouTube/Topics/Active recall|Active recall]]", text)
-        self.assertIn("[[YouTube/Topics/Spacing|Spacing]]", text)
-        self.assertEqual(created, 2)
+    def test_topic_names_come_from_saved_video_notes(self):
+        everything = "spaced repetition sales funnel café code image youtube topic"
+        self.assertEqual(topic_names(self.vault, everything), [])
+        self.add("YouTube/Notes/One.md", "[[Spaced repetition]] [[YouTube/Topics/Sales funnel|Sales funnel]] ![[image.png]]")
+        self.add("YouTube/Notes/Two.md", "[[spaced repetition|spacing]] [[Café#Menu]] `[[Code]]`")
+        self.add("Areas/Elsewhere.md", "[[Not a YouTube topic]]")
+        self.assertEqual(sorted(topic_names(self.vault, everything)), ["Café", "Sales funnel", "Spaced repetition"])
+
+    def test_only_topics_the_transcript_mentions_are_offered(self):
+        self.add("YouTube/Notes/One.md", "[[Sales funnel]] [[Cold email outreach]] [[B2B lead generation]] [[Sleep]]")
+        transcript = "[00:05] Most B2B founders ignore their funnels.\n[00:09] Cold calling still works."
+        # Half of "Sales funnel" matches, a third of the others; "Sleep" is not mentioned at all.
+        self.assertEqual(topic_names(self.vault, transcript),
+                         ["Sales funnel", "B2B lead generation", "Cold email outreach"])
+        self.assertEqual(topic_names(self.vault, "Nothing related here."), [])
+        self.assertEqual(topic_names(self.vault, ""), [])
+
+    def test_full_matches_then_most_used_topics_come_first_within_the_limit(self):
+        self.add("YouTube/Notes/One.md", "[[Sales funnel]] [[Sales calls]] [[Pricing]]")
+        self.add("YouTube/Notes/Two.md", "[[Sales calls]] [[Pricing]] [[Pricing]]")
+        self.add("YouTube/Notes/Three.md", "[[Pricing]]")
+        transcript = "Sales calls, funnels, and pricing."
+        # Full matches first (Pricing is in 3 notes, Sales calls in 2, Sales funnel in 1).
+        self.assertEqual(topic_names(self.vault, transcript), ["Pricing", "Sales calls", "Sales funnel"])
+        self.add("YouTube/Notes/Four.md", "[[Sales tax]]")
+        self.assertEqual(topic_names(self.vault, transcript, limit=4)[-1], "Sales tax")  # Half its words match.
+        self.assertEqual(topic_names(self.vault, transcript, limit=2), ["Pricing", "Sales calls"])
+
+    def test_word_matching_handles_plurals_and_endings(self):
+        self.add("YouTube/Notes/One.md", "[[Modeling successful businesses]] [[Category theory]] [[Box]]")
+        self.assertEqual(topic_names(self.vault, "Two business models. Categories. Boxes."),
+                         ["Box", "Modeling successful businesses", "Category theory"])  # 1/1, 2/3, 1/2 of the words.
 
     def test_vault_scan_never_enters_hidden_folders(self):
         for relative in (".obsidian/plugins/p/Active recall.md", ".git/objects/x.md", "Areas/.Hidden.md",
@@ -243,34 +241,11 @@ class SaveNoteTests(unittest.TestCase):
         self.assertTrue(scanned)
         self.assertFalse([path for path in scanned if any(part.startswith(".") for part in path.relative_to(self.vault).parts)])
 
-    def test_uppercase_md_notes_are_link_targets(self):
-        self.add("Areas/Upper.MD")
-        self.add("Areas/.Hidden.md")
-        _, text, _, created = self.save("[[Upper]] [[Hidden]]")
-        self.assertIn("[[Areas/Upper|Upper]]", text)
-        self.assertIn("[[YouTube/Topics/Hidden|Hidden]]", text)
-        self.assertEqual(created, 1)
-
-    def test_symlinks_out_of_the_vault_are_not_link_targets(self):
-        outside = tempfile.TemporaryDirectory(prefix="apis-outside-")
-        self.addCleanup(outside.cleanup)
-        target = Path(outside.name) / "Outside.md"
-        target.write_text("# Outside\n", encoding="utf-8")
-        try:
-            os.symlink(target, self.vault / "Outside.md")
-            os.symlink(outside.name, self.vault / "Linked folder", target_is_directory=True)
-        except (OSError, NotImplementedError):
-            self.skipTest("Symlinks are not available here.")
-        _, text, _, created = self.save("[[Outside]]")
-        self.assertIn("[[YouTube/Topics/Outside|Outside]]", text)
-        self.assertEqual(created, 1)
-
-    def test_saving_twice_numbers_the_note_and_creates_topics_once(self):
+    def test_saving_twice_numbers_the_note(self):
         first = self.save("[[Topic]]")
         second = self.save("[[Topic]]")
         self.assertEqual(first[0].name, f"A useful idea ({ID}).md")
         self.assertEqual(second[0].name, f"A useful idea ({ID}) (2).md")
-        self.assertEqual((first[3], second[3]), (1, 0))
         self.assertEqual(first[1], second[1])
 
     def test_title_fallback_and_unsafe_title(self):
@@ -283,7 +258,7 @@ class SaveNoteTests(unittest.TestCase):
 
     def test_properties_come_first_exactly_once(self):
         properties = '---\nsource: "%s"\nvideo_id: "%s"\nsaved: 2026-11-14\ntags: ["youtube"]\n---\n' % (URL, ID)
-        path, linked, created = save_note(self.vault, URL, 'Say "hi": now', "## Notes\n---\nText",
+        path, linked, existing = save_note(self.vault, URL, 'Say "hi": now', "## Notes\n---\nText",
                                           extra={"saved": date(2026, 11, 14), "tags": ["youtube"]})
         text = path.read_text(encoding="utf-8")
         self.assertTrue(text.startswith(properties + '# Say "hi": now\n\n[Watch on YouTube]'))
@@ -292,11 +267,10 @@ class SaveNoteTests(unittest.TestCase):
 
     def test_note_with_its_own_properties_gets_no_second_block(self):
         body = "---\naliases: [Recall]\ntags:\n  - study\nrelated: \"[[Topic]]\"\n---\n\n## Notes\nText"
-        _, text, _, created = self.save(f"````markdown\n{body}\n````")
-        self.assertTrue(text.startswith('---\naliases: [Recall]\ntags:\n  - study\nrelated: "[[YouTube/Topics/Topic|Topic]]"\n---\n'
+        _, text, _, _ = self.save(f"````markdown\n{body}\n````")
+        self.assertTrue(text.startswith('---\naliases: [Recall]\ntags:\n  - study\nrelated: "[[Topic]]"\n---\n'
                                         f"# A useful idea\n\n[Watch on YouTube]({URL})\n\n## Notes\nText\n"))
         self.assertNotIn("video_id", text)
-        self.assertEqual(created, 1)
 
     def test_leading_rule_is_not_mistaken_for_properties(self):
         body = "---\n## Part one\nText\n---\n## Part two"
@@ -345,6 +319,13 @@ class MakePromptTests(unittest.TestCase):
         self.assertNotIn("Existing YouTube topics", make_prompt(URL, "Quick skim", "", []))
         prompt = make_prompt(URL, "Quick skim", "", ["Active recall", "Café"])
         self.assertTrue(prompt.endswith('Existing YouTube topics (use only relevant ones): ["Active recall", "Café"]'))
+
+    def test_transcript_comes_first_in_one_message(self):
+        prompt = make_prompt(URL, "Quick skim", "", [])
+        message = with_transcript(prompt, URL, "A useful idea", "Auto captions (en)", "[00:05] Hello")
+        self.assertEqual(message, f'Transcript of "A useful idea" ({URL})\nCaptions: Auto captions (en)\n\n'
+                                  f"<transcript>\n[00:05] Hello\n</transcript>\n\n{prompt}")
+        self.assertTrue(prompt.startswith(f"Use the transcript above for this YouTube video: {URL}"))
 
 
 if __name__ == "__main__":

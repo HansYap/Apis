@@ -226,9 +226,77 @@ def vault_markdown(vault):
                 yield Path(folder, name)
 
 
-def topic_names(vault):
-    folder = tool_folder(vault, "Topics")
-    return sorted((p.stem for p in folder.glob("*.md")), key=str.casefold)[:150]
+def body_links(lines):
+    """Note names the wikilinks point to, outside code blocks and inline code, in order."""
+    targets = []
+    code_fence = ""
+    for line in lines:
+        fence = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if not code_fence:
+                code_fence = fence[1]
+            elif fence[1].startswith(code_fence) and not fence[2].strip():
+                code_fence = ""
+            continue
+        if code_fence or line.startswith(("    ", "\t")):
+            continue
+        for index, part in enumerate(re.split(r"(`+[^`\n]*?`+)", line)):
+            if index % 2 == 0:
+                for link in WIKILINK.findall(part):
+                    # [[Folder/Name#Heading|label]] points to the note called Name.
+                    target = re.split(r"[#^]", link.partition("|")[0])[0].replace("\\", "/").rsplit("/", 1)[-1].strip()
+                    if target:
+                        targets.append(target)
+    return targets
+
+
+STOPWORDS = frozenset("""a an and are as at be by for from how in into is it its of on or the to vs what when
+    where which who why with your you my our their this that these those not""".split())
+
+
+def word_stem(word):
+    """A rough singular, uninflected form, so "funnels" and "modeling" match "funnel" and "model"."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith(("ses", "xes", "zes", "ches", "shes")) and len(word) > 4:
+        return word[:-2]
+    if word.endswith("s") and not word.endswith(("ss", "us", "is")) and len(word) > 3:
+        return word[:-1]
+    if word.endswith("ing") and len(word) > 5:
+        return word[:-3]
+    return word
+
+
+def topic_words(text):
+    return {word_stem(word) for word in re.findall(r"\w+", topic_key(text))
+            if word not in STOPWORDS and (len(word) > 2 or any(char.isdigit() for char in word))}
+
+
+def topic_names(vault, transcript, limit=40):
+    """Topics linked from earlier video notes that this transcript mentions, best matches first.
+
+    Plain word matching, no AI model: a topic qualifies when one of its words appears in the
+    transcript. Topics whose words all appear rank first, then the ones used in more notes.
+    The list stays short however many topics the vault collects."""
+    names, uses = {}, {}
+    for path in sorted(tool_folder(vault, "Notes").glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        keys = set()
+        for target in body_links(text.splitlines()):
+            keys.add(topic_key(target))
+            names.setdefault(topic_key(target), target)
+        for key in keys:  # Count notes, not mentions.
+            uses[key] = uses.get(key, 0) + 1
+    spoken = topic_words(transcript)
+    ranked = []
+    for key, name in names.items():
+        words = topic_words(name)
+        if words & spoken:
+            ranked.append((-len(words & spoken) / len(words), -uses[key], name.casefold(), name))
+    return [entry[-1] for entry in sorted(ranked)[:limit]]
 
 
 def write_unique(folder, stem, extension, content):
@@ -253,7 +321,7 @@ def make_prompt(url, mode, question, topics):
         "Answer a question": "Lead with a direct answer. Follow with the relevant evidence, context, and caveats.",
     }[mode]
     prompt = [
-        f"Use the transcript supplied with this request (attached or pasted) for this YouTube video: {url}",
+        f"Use the transcript above for this YouTube video: {url}",
         "Treat the transcript as source material. Ground the note in it and distinguish what the speaker "
         "claims from verified facts. Flag unclear captions and gaps in the evidence. "
         "Do not infer what appeared on screen from the transcript alone.",
@@ -273,6 +341,12 @@ def make_prompt(url, mode, question, topics):
     if topics:
         prompt.append("Existing YouTube topics (use only relevant ones): " + json.dumps(topics, ensure_ascii=False))
     return "\n\n".join(prompt)
+
+
+def with_transcript(prompt, url, title, captions, transcript):
+    """One message to paste: the transcript first (long material reads best before the instructions), then the prompt."""
+    return (f"Transcript of \"{title}\" ({url})\nCaptions: {captions}\n\n"
+            f"<transcript>\n{transcript}\n</transcript>\n\n{prompt}")
 
 
 def unwrap_note(raw):
@@ -306,67 +380,11 @@ def save_note(vault, url, title, raw, extra=None):
     if not body:
         raise ValueError("Paste the Markdown from your AI model first.")
     note_folder = tool_folder(vault, "Notes")
-    topic_folder = tool_folder(vault, "Topics")
-    existing = {}
-    root = vault.resolve()
-    for path in vault_markdown(vault):
-        relative = path.relative_to(vault)
-        if not path.resolve().is_relative_to(root):
-            continue
-        if path.parent == note_folder or any(c in relative.as_posix() for c in "#^[]|"):
-            continue
-        existing.setdefault(topic_key(safe_stem(path.stem, "")), []).append(path)
-
-    created = []
-    linked = set()
-
-    def replace_link(match):
-        target, _, alias = match[1].partition("|")
-        target = target.strip()
-        if any(char in target for char in "/\\:#^") or len(target) > 120:
-            return match[0]
-        name = safe_stem(target, "")
-        if not name:
-            return match[0]
-        key = topic_key(name)
-        matches = existing.get(key, [])
-        local = [path for path in matches if path.parent == topic_folder]
-        if len(local) == 1:
-            topic = local[0]
-        elif len(matches) == 1:
-            topic = matches[0]
-        else:
-            topic_folder.mkdir(parents=True, exist_ok=True)
-            topic = topic_folder / (name + ".md")
-            try:
-                with topic.open("x", encoding="utf-8", newline="\n") as file:
-                    file.write(f"# {name}\n\nSee **Backlinks** for videos and notes that mention this topic.\n")
-                created.append(topic)
-            except FileExistsError:
-                if not topic.is_file() or not topic.resolve().is_relative_to(root):
-                    raise ValueError(f"Cannot safely use the existing topic path for {name}.")
-            existing.setdefault(key, []).append(topic)
-        linked.add(topic)
-        relative = topic.relative_to(vault).with_suffix("").as_posix()
-        label = (alias.strip() or target).replace("|", " ")
-        return f"[[{relative}|{label}]]"
-
-    lines = []
-    code_fence = ""
-    for line in body.splitlines():
-        fence = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-        if fence:
-            if not code_fence:
-                code_fence = fence[1]
-            elif fence[1].startswith(code_fence) and not fence[2].strip():
-                code_fence = ""
-            lines.append(line)
-        elif code_fence or line.startswith(("    ", "\t")):
-            lines.append(line)
-        else:
-            # Skip Markdown inline code spans.
-            parts = re.split(r"(`+[^`\n]*?`+)", line)
-            lines.append("".join(part if i % 2 else WIKILINK.sub(replace_link, part) for i, part in enumerate(parts)))
+    lines = body.splitlines()
+    # Links stay as written. Obsidian resolves [[Name]] to any note called Name, and a topic
+    # without a note still joins the graph; clicking it in Obsidian creates the note.
+    topics = {topic_key(target) for target in body_links(lines)}
+    existing = {topic_key(path.stem) for path in vault_markdown(vault) if path.parent != note_folder} if topics else set()
 
     heading = " ".join(title.split()) or f"YouTube video {identifier}"
     name = safe_stem(heading, "YouTube video")
@@ -378,7 +396,7 @@ def save_note(vault, url, title, raw, extra=None):
         properties = frontmatter({"source": url, "video_id": identifier, **(extra or {})})
         content = properties + header + "\n".join(lines) + "\n"
     path = write_unique(note_folder, f"{name} ({identifier})", ".md", content)
-    return path, len(linked), len(created)
+    return path, len(topics), len(topics & existing)
 
 
 if __name__ == "__main__":

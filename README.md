@@ -22,6 +22,9 @@ sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 webkit2gtk4.1 
 Then run `./start-apis.sh`. Run `./install-desktop-entry.sh` once to add Apis to the app grid
 (run it again if you move the folder).
 
+**Open in Obsidian** uses `obsidian://` links. The Flatpak build of Obsidian (Flathub) handles them;
+the AppImage does not until it has a desktop entry. See *Open in Obsidian with the AppImage* in `START HERE.txt`.
+
 On its first launch, Apis offers to install its desktop renderer (pywebview) inside
 `.packages/`. Keep `app.py`, `caption_core.py`, `requirements.txt`, `web/`, and `assets/` together.
 
@@ -33,26 +36,28 @@ Manual transcript import and note saving do not need a JavaScript runtime.
 
 1. **Transcript:** paste a YouTube link and click **Get transcript**, or use **Import file** or paste a transcript.
    Open **Video details** to set the title or choose a caption language such as `en` or `ms`.
-2. **AI model:** click **Continue to AI model**, choose a reading style, then click **Save & copy prompt**.
-   Attach the saved TXT to your AI model's chat and paste the prompt.
+2. **AI model:** click **Continue to AI model**, choose a reading style, then click **Copy prompt**.
+   The copied text includes the transcript, so paste it into your AI model's chat and send it.
 3. **Obsidian:** choose your vault, paste the returned Markdown, and click **Save & connect**.
-   Topic wikilinks reuse existing notes where possible and create topic notes when needed.
+   Topic wikilinks are kept as written. Obsidian links them to notes with the same name, and a topic
+   without a note still appears in the graph; click it in Obsidian to create that note.
    **Open in Obsidian** opens the new note; **Open saved folder** shows the file.
 
-Choose your vault before preparing a prompt to include existing YouTube topic names.
+Choose your vault before copying a prompt so it reuses topic names from your earlier video notes.
+Only topics the transcript mentions are included (plain word matching, up to 40), so the prompt stays short.
 Apis remembers the vault across videos and restarts. Press **Ctrl + L** to return to the
 video link. Switching screens preserves your work, and **New video** asks before clearing
 a transcript or note.
 
 ## Files and privacy
 
-- Transcripts stay in `Transcripts/` beside the app.
-- Notes go to `YouTube/Notes/` inside your vault; topics go to `YouTube/Topics/`.
+- Transcripts are not saved; the copied prompt carries them to your AI model.
+- Notes go to `YouTube/Notes/` inside your vault. Apis creates no other files there.
 - Each note starts with Obsidian properties: `source`, `video_id`, `saved`, and `tags` (`youtube`).
   If the pasted Markdown already starts with its own properties, Apis keeps those instead.
 - Repeated saves create numbered copies rather than overwriting notes.
 - The app does not upload transcripts to any AI service or access browser cookies.
-- Settings, transcripts, and installed dependencies are excluded from Git.
+- Settings and installed dependencies are excluded from Git.
 
 The interface and bundled DM Sans font load locally. There are no external
 font requests, analytics, or decorative animation loops. The glass effect

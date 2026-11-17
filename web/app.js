@@ -180,7 +180,7 @@ async function prepare() {
   if (payload().mode === "Answer a question" && !$("question").value.trim()) {
     $("question").focus(); status("Add the question you want your AI model to answer.", "error"); return;
   }
-  await run("Saving the words. Preparing the prompt…", async () => {
+  await run("Preparing the prompt…", async () => {
     const result = await api("prepare", payload());
     let copied = result.copied;
     if (!copied) {
@@ -189,12 +189,12 @@ async function prepare() {
     $("generated-prompt").value = result.prompt;
     $("prompt-fallback").hidden = copied;
     $("prompt-fallback").open = !copied;
-    $("prepared-title").textContent = copied ? "Transcript saved. Prompt copied." : "Transcript saved. Copy the prompt below.";
-    $("prepared-file").textContent = result.filename;
+    $("prepared-title").textContent = copied ? "Prompt copied." : "Copy the prompt below.";
+    $("prepared-file").textContent = `Includes the transcript (${result.words.toLocaleString()} words).`;
     preparedSignature = signature();
     highestStep = 2;
     $("prepared-result").hidden = false;
-    status(copied ? "Ready. Use the saved transcript and prompt with your preferred AI model, then continue to Obsidian." : "Your transcript is saved. Clipboard access failed; select and copy the prompt below.");
+    status(copied ? "Ready. Paste it into your AI chat and send, then continue to Obsidian." : "Clipboard access failed; select and copy the prompt below.");
   });
 }
 
@@ -206,8 +206,9 @@ async function saveNote() {
   await run("Giving your ideas a home…", async () => {
     const result = await api("save", payload());
     $("saved-title").textContent = result.filename;
+    const topics = (count) => `${count} topic${count === 1 ? "" : "s"}`;
     $("saved-detail").textContent = result.linked
-      ? `${result.linked} topic connections · ${result.created} new topic notes`
+      ? `${topics(result.linked)} linked` + (result.existing ? ` · ${result.existing} already in your vault` : "")
       : "Saved. Add [[Topic links]] in your note to create graph connections.";
     $("saved-result").hidden = false;
     status("Saved to your vault. Another idea, connected.");
@@ -272,7 +273,6 @@ $("import-note").addEventListener("click", () => importFile("note"));
 $("prepare").addEventListener("click", prepare);
 $("save").addEventListener("click", saveNote);
 $("open-video").addEventListener("click", () => run("Opening your video…", async () => { await api("open_external", "youtube", $("video-url").value); status("In YouTube, choose Show transcript if you need to copy captions."); }));
-$("open-transcripts").addEventListener("click", () => run("Opening your transcripts…", async () => { await api("open_folder", "transcripts"); status("Transcript folder opened."); }));
 $("open-obsidian").addEventListener("click", () => run("Opening your note in Obsidian…", async () => { await api("open_external", "obsidian"); status("Your note should now be open in Obsidian."); }));
 $("open-note").addEventListener("click", () => run("Opening your saved notes…", async () => { await api("open_folder", "note"); status("Your saved note folder is open."); }));
 $("install-reader").addEventListener("click", async () => {
