@@ -41,14 +41,15 @@ class DesktopWorkflowTests(unittest.TestCase):
         today = patch.object(app, "date", SimpleNamespace(today=lambda: date(2026, 11, 14)))
         today.start()
         self.addCleanup(today.stop)
-        self.add_note("Earlier (lmnopqrstuv).md", "Uses [[Spaced repetition]].")
+        self.add_note("Earlier (lmnopqrstuv).md", "Uses [[Spaced repetition]] and [[Active recall]].")
         result = self.api.prepare(self.payload)
         self.assertTrue(result["ok"], result)
         prompt = result["data"]["prompt"]
         self.assertTrue(prompt.startswith('Transcript of "A useful idea" (https://www.youtube.com/watch?v=abcdefghijk)\n'
                                           "Captions: Pasted or imported\n\n<transcript>\n[00:05] Use active recall.\n"))
         self.assertIn("How can I remember this?", prompt)
-        self.assertTrue(prompt.endswith('Existing YouTube topics (use only relevant ones): ["Spaced repetition"]'))
+        # Only topics this transcript mentions are offered.
+        self.assertTrue(prompt.endswith('Existing YouTube topics (use only relevant ones): ["Active recall"]'))
         self.assertEqual(result["data"]["words"], 9)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["YouTube"])  # Nothing else is written.
         first = self.api.save(self.payload)

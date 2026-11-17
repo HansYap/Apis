@@ -180,7 +180,7 @@ class Api:
         if mode == "Answer a question" and not question:
             raise ValueError("Add your question so your AI model knows what to answer.")
         title = payload.get("title", "").strip() or f"YouTube video {identifier}"
-        topics = topic_names(vault_path(payload["vault"])) if payload.get("vault", "").strip() else []
+        topics = topic_names(vault_path(payload["vault"]), text) if payload.get("vault", "").strip() else []
         track = self._fetched[1] if self._fetched and self._fetched[0] == url and self._fetched[2] == text else "Pasted or imported"
         prompt = with_transcript(make_prompt(url, mode, question, topics), url, title, track, text)
         self._prepared = (url, title)

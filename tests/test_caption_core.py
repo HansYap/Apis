@@ -193,11 +193,37 @@ class SaveNoteTests(unittest.TestCase):
         self.assertTrue(text.endswith(body + "\n"))
 
     def test_topic_names_come_from_saved_video_notes(self):
-        self.assertEqual(topic_names(self.vault), [])
+        everything = "spaced repetition sales funnel café code image youtube topic"
+        self.assertEqual(topic_names(self.vault, everything), [])
         self.add("YouTube/Notes/One.md", "[[Spaced repetition]] [[YouTube/Topics/Sales funnel|Sales funnel]] ![[image.png]]")
         self.add("YouTube/Notes/Two.md", "[[spaced repetition|spacing]] [[Café#Menu]] `[[Code]]`")
         self.add("Areas/Elsewhere.md", "[[Not a YouTube topic]]")
-        self.assertEqual(topic_names(self.vault), ["Café", "Sales funnel", "Spaced repetition"])
+        self.assertEqual(sorted(topic_names(self.vault, everything)), ["Café", "Sales funnel", "Spaced repetition"])
+
+    def test_only_topics_the_transcript_mentions_are_offered(self):
+        self.add("YouTube/Notes/One.md", "[[Sales funnel]] [[Cold email outreach]] [[B2B lead generation]] [[Sleep]]")
+        transcript = "[00:05] Most B2B founders ignore their funnels.\n[00:09] Cold calling still works."
+        # Half of "Sales funnel" matches, a third of the others; "Sleep" is not mentioned at all.
+        self.assertEqual(topic_names(self.vault, transcript),
+                         ["Sales funnel", "B2B lead generation", "Cold email outreach"])
+        self.assertEqual(topic_names(self.vault, "Nothing related here."), [])
+        self.assertEqual(topic_names(self.vault, ""), [])
+
+    def test_full_matches_then_most_used_topics_come_first_within_the_limit(self):
+        self.add("YouTube/Notes/One.md", "[[Sales funnel]] [[Sales calls]] [[Pricing]]")
+        self.add("YouTube/Notes/Two.md", "[[Sales calls]] [[Pricing]] [[Pricing]]")
+        self.add("YouTube/Notes/Three.md", "[[Pricing]]")
+        transcript = "Sales calls, funnels, and pricing."
+        # Full matches first (Pricing is in 3 notes, Sales calls in 2, Sales funnel in 1).
+        self.assertEqual(topic_names(self.vault, transcript), ["Pricing", "Sales calls", "Sales funnel"])
+        self.add("YouTube/Notes/Four.md", "[[Sales tax]]")
+        self.assertEqual(topic_names(self.vault, transcript, limit=4)[-1], "Sales tax")  # Half its words match.
+        self.assertEqual(topic_names(self.vault, transcript, limit=2), ["Pricing", "Sales calls"])
+
+    def test_word_matching_handles_plurals_and_endings(self):
+        self.add("YouTube/Notes/One.md", "[[Modeling successful businesses]] [[Category theory]] [[Box]]")
+        self.assertEqual(topic_names(self.vault, "Two business models. Categories. Boxes."),
+                         ["Box", "Modeling successful businesses", "Category theory"])  # 1/1, 2/3, 1/2 of the words.
 
     def test_vault_scan_never_enters_hidden_folders(self):
         for relative in (".obsidian/plugins/p/Active recall.md", ".git/objects/x.md", "Areas/.Hidden.md",

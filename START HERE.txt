@@ -51,7 +51,8 @@ EACH VIDEO
    connections in Obsidian's Graph view or a topic's Backlinks.
 
 Choose your vault before copying the prompt to reuse topic names from your
-earlier video notes. Switching screens keeps your current text. Ctrl + L returns to the
+earlier video notes. Only topics the transcript mentions are included (up to
+40, best matches first), so the prompt stays short as your vault grows. Switching screens keeps your current text. Ctrl + L returns to the
 link. New video asks before clearing a transcript or note from the workspace.
 It keeps your vault.
 

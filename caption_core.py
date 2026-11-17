@@ -250,17 +250,53 @@ def body_links(lines):
     return targets
 
 
-def topic_names(vault):
-    """Topics already linked from saved video notes, so new notes reuse the same names."""
-    names = {}
+STOPWORDS = frozenset("""a an and are as at be by for from how in into is it its of on or the to vs what when
+    where which who why with your you my our their this that these those not""".split())
+
+
+def word_stem(word):
+    """A rough singular, uninflected form, so "funnels" and "modeling" match "funnel" and "model"."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith(("ses", "xes", "zes", "ches", "shes")) and len(word) > 4:
+        return word[:-2]
+    if word.endswith("s") and not word.endswith(("ss", "us", "is")) and len(word) > 3:
+        return word[:-1]
+    if word.endswith("ing") and len(word) > 5:
+        return word[:-3]
+    return word
+
+
+def topic_words(text):
+    return {word_stem(word) for word in re.findall(r"\w+", topic_key(text))
+            if word not in STOPWORDS and (len(word) > 2 or any(char.isdigit() for char in word))}
+
+
+def topic_names(vault, transcript, limit=40):
+    """Topics linked from earlier video notes that this transcript mentions, best matches first.
+
+    Plain word matching, no AI model: a topic qualifies when one of its words appears in the
+    transcript. Topics whose words all appear rank first, then the ones used in more notes.
+    The list stays short however many topics the vault collects."""
+    names, uses = {}, {}
     for path in sorted(tool_folder(vault, "Notes").glob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
+        keys = set()
         for target in body_links(text.splitlines()):
+            keys.add(topic_key(target))
             names.setdefault(topic_key(target), target)
-    return sorted(names.values(), key=str.casefold)[:150]
+        for key in keys:  # Count notes, not mentions.
+            uses[key] = uses.get(key, 0) + 1
+    spoken = topic_words(transcript)
+    ranked = []
+    for key, name in names.items():
+        words = topic_words(name)
+        if words & spoken:
+            ranked.append((-len(words & spoken) / len(words), -uses[key], name.casefold(), name))
+    return [entry[-1] for entry in sorted(ranked)[:limit]]
 
 
 def write_unique(folder, stem, extension, content):

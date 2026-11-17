@@ -44,6 +44,7 @@ Manual transcript import and note saving do not need a JavaScript runtime.
    **Open in Obsidian** opens the new note; **Open saved folder** shows the file.
 
 Choose your vault before copying a prompt so it reuses topic names from your earlier video notes.
+Only topics the transcript mentions are included (plain word matching, up to 40), so the prompt stays short.
 Apis remembers the vault across videos and restarts. Press **Ctrl + L** to return to the
 video link. Switching screens preserves your work, and **New video** asks before clearing
 a transcript or note.
