@@ -226,9 +226,8 @@ def vault_markdown(vault):
                 yield Path(folder, name)
 
 
-def body_links(lines):
-    """Note names the wikilinks point to, outside code blocks and inline code, in order."""
-    targets = []
+def link_contexts(lines):
+    """(note name, line) for each wikilink outside code blocks and inline code, in order."""
     code_fence = ""
     for line in lines:
         fence = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -246,8 +245,21 @@ def body_links(lines):
                     # [[Folder/Name#Heading|label]] points to the note called Name.
                     target = re.split(r"[#^]", link.partition("|")[0])[0].replace("\\", "/").rsplit("/", 1)[-1].strip()
                     if target:
-                        targets.append(target)
-    return targets
+                        yield target, line
+
+
+def body_links(lines):
+    """Note names the wikilinks point to, outside code blocks and inline code, in order."""
+    return [target for target, _ in link_contexts(lines)]
+
+
+def plain_line(line, limit=280):
+    """A Markdown line as plain prose: link labels kept, markup and timestamp links removed."""
+    line = WIKILINK.sub(lambda match: match[1].rpartition("|")[2], line)
+    line = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", line)
+    line = re.sub(r"^\s*(?:#{1,6}\s|>\s?|[-*+]\s(?:\[.\]\s)?|\d+[.)]\s)", "", line)
+    line = " ".join(re.sub(r"[*_`~]|\[\]", "", line).split())
+    return line if len(line) <= limit else line[:limit].rsplit(" ", 1)[0] + "…"
 
 
 STOPWORDS = frozenset("""a an and are as at be by for from how in into is it its of on or the to vs what when
@@ -272,31 +284,96 @@ def topic_words(text):
             if word not in STOPWORDS and (len(word) > 2 or any(char.isdigit() for char in word))}
 
 
+def vault_topics(vault, contexts=3):
+    """Topics linked from earlier video notes: {key: (name, notes using it, up to `contexts` sentences)}."""
+    topics = {}
+    for path in sorted(tool_folder(vault, "Notes").glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        seen = set()
+        for target, line in link_contexts(text.splitlines()):
+            key = topic_key(target)
+            name, uses, sentences = topics.setdefault(key, (target, 0, []))
+            if key not in seen:  # Count notes, not mentions.
+                seen.add(key)
+                uses += 1
+            sentence = plain_line(line)
+            if len(sentences) < contexts and sentence and sentence not in sentences:
+                sentences.append(sentence)
+            topics[key] = (name, uses, sentences)
+    return topics
+
+
 def topic_names(vault, transcript, limit=40):
     """Topics linked from earlier video notes that this transcript mentions, best matches first.
 
     Plain word matching, no AI model: a topic qualifies when one of its words appears in the
     transcript. Topics whose words all appear rank first, then the ones used in more notes.
     The list stays short however many topics the vault collects."""
-    names, uses = {}, {}
-    for path in sorted(tool_folder(vault, "Notes").glob("*.md")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        keys = set()
-        for target in body_links(text.splitlines()):
-            keys.add(topic_key(target))
-            names.setdefault(topic_key(target), target)
-        for key in keys:  # Count notes, not mentions.
-            uses[key] = uses.get(key, 0) + 1
     spoken = topic_words(transcript)
     ranked = []
-    for key, name in names.items():
+    for key, (name, uses, _) in vault_topics(vault).items():
         words = topic_words(name)
         if words & spoken:
-            ranked.append((-len(words & spoken) / len(words), -uses[key], name.casefold(), name))
+            ranked.append((-len(words & spoken) / len(words), -uses, name.casefold(), name))
     return [entry[-1] for entry in sorted(ranked)[:limit]]
+
+
+def topic_profiles(vault):
+    """What the topic model compares with the transcript: each topic's name plus how earlier notes used it.
+
+    A bare name such as "Working memory" says little; the sentences around its links say what it means here."""
+    return [{"name": name, "uses": uses, "text": f"{name}: " + " ".join(sentences) if sentences else name}
+            for name, uses, sentences in vault_topics(vault).values()]
+
+
+def transcript_chunks(transcript, size=60, step=40):
+    """Overlapping passages of about `size` words, each with the timestamp it starts at."""
+    words = []  # (word, timestamp of its line)
+    for line in transcript.splitlines():
+        match = re.match(rf"^\[({TIME})\]\s*(.*)$", line.strip())
+        stamp, text = (match[1], match[2]) if match else ("", line)
+        words.extend((word, stamp) for word in text.split())
+    chunks = []
+    for start in range(0, max(len(words) - size + step, 1), step):
+        part = words[start:start + size]
+        if part:
+            chunks.append({"time": next((stamp for _, stamp in part if stamp), ""),
+                           "text": " ".join(word for word, _ in part)})
+    return chunks
+
+
+# Tuned on held-out video notes: at 0.60, 9 in 10 suggestions were topics the note really used;
+# from 0.50 the model finds about 7 in 10 reusable topics, and the chat model discards the rest.
+STRONG_MATCH = 0.60
+POSSIBLE_MATCH = 0.50
+
+
+def pick_suggestions(scores, chunks, transcript, limit=15):
+    """Rank the topic model's scores into strong and possible suggestions; drop the far-off ones.
+
+    A topic whose words all appear in the transcript is at least a possible match, so the
+    model never hides a topic the video names outright."""
+    spoken = topic_words(transcript)
+    picked = []
+    for entry in scores:
+        words = topic_words(entry["name"])
+        score = entry["score"]
+        if score >= STRONG_MATCH:
+            strength = "strong"
+        elif score >= POSSIBLE_MATCH or (words and words <= spoken):
+            strength = "possible"
+        else:
+            continue
+        chunk = chunks[entry["chunk"]] if 0 <= entry.get("chunk", -1) < len(chunks) else {"time": "", "text": ""}
+        excerpt = chunk["text"].split()
+        excerpt = " ".join(excerpt[:24]) + ("…" if len(excerpt) > 24 else "")
+        picked.append({"name": entry["name"], "strength": strength, "score": round(score, 3),
+                       "time": chunk["time"], "excerpt": excerpt})
+    picked.sort(key=lambda item: (item["strength"] != "strong", -item["score"], item["name"].casefold()))
+    return picked[:limit]
 
 
 def write_unique(folder, stem, extension, content):
@@ -313,7 +390,8 @@ def write_unique(folder, stem, extension, content):
     raise ValueError("Too many files with this title. Try a different title.")
 
 
-def make_prompt(url, mode, question, topics):
+def make_prompt(url, mode, question, topics, suggestions=None):
+    """`topics` are word-matched names; `suggestions`, when the topic model ran, replace them."""
     depth = {
         "Skim + detailed notes": "Start with a 60-second skim. Then give detailed notes in video order. "
                                   "Keep the important examples, steps, numbers, caveats, and disagreements.",
@@ -338,7 +416,23 @@ def make_prompt(url, mode, question, topics):
     ]
     if question:
         prompt.insert(3, f"My question or focus: {question}\nAnswer my question first if the transcript supports an answer.")
-    if topics:
+    if suggestions:
+        lines = []
+        for item in suggestions:
+            where = f" near [{item['time']}]" if item["time"] else ""
+            excerpt = f': "{item["excerpt"]}"' if item["excerpt"] else ""
+            lines.append(f"- [[{item['name']}]] ({item['strength']} match{where}{excerpt})")
+        prompt.append(
+            "Suggested existing topics from my vault. A small local model matched each one to the closest "
+            "passage of the transcript. It saw only short passages, not the whole video, so judge each "
+            "suggestion against the full transcript:\n" + "\n".join(lines) + "\n"
+            "Link a suggested topic only where the passage really is about it, and skip any that do not fit. "
+            "If an important idea matches none of them, create a new short topic name. Prefer an existing "
+            "name when it fits, even if the video words the idea differently.")
+    elif suggestions is not None:
+        prompt.append("None of my existing topics closely match this video, so create new short topic names "
+                      "for its reusable ideas.")
+    elif topics:
         prompt.append("Existing YouTube topics (use only relevant ones): " + json.dumps(topics, ensure_ascii=False))
     return "\n\n".join(prompt)
 

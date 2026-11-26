@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from caption_core import (choose_track, clean_transcript, frontmatter, make_prompt, parse_json3, parse_subtitle_file,
-                          safe_stem, save_note, topic_names, unwrap_note, vault_markdown, video_url, with_transcript)
+                          pick_suggestions, plain_line, safe_stem, save_note, topic_names, topic_profiles,
+                          transcript_chunks, unwrap_note, vault_markdown, video_url, with_transcript)
 
 ID = "abcdefghijk"
 URL = f"https://www.youtube.com/watch?v={ID}"
@@ -225,6 +226,15 @@ class SaveNoteTests(unittest.TestCase):
         self.assertEqual(topic_names(self.vault, "Two business models. Categories. Boxes."),
                          ["Box", "Modeling successful businesses", "Category theory"])  # 1/1, 2/3, 1/2 of the words.
 
+    def test_topic_profiles_describe_topics_with_their_earlier_sentences(self):
+        self.add("YouTube/Notes/One.md", "## Notes\n- Use [[Spaced repetition|spacing]] to review [later](https://x).\n"
+                                         "```\n[[Code]]\n```\n**[[Sleep]]** matters.")
+        self.add("YouTube/Notes/Two.md", "> [[spaced repetition]] beats cramming.")
+        self.assertEqual(sorted(topic_profiles(self.vault), key=lambda p: p["name"]), [
+            {"name": "Sleep", "uses": 1, "text": "Sleep: Sleep matters."},
+            {"name": "Spaced repetition", "uses": 2,
+             "text": "Spaced repetition: Use spacing to review later. spaced repetition beats cramming."}])
+
     def test_vault_scan_never_enters_hidden_folders(self):
         for relative in (".obsidian/plugins/p/Active recall.md", ".git/objects/x.md", "Areas/.Hidden.md",
                          "Areas/Upper.MD", "Areas/Note.md", "Areas/Notes.txt"):
@@ -296,6 +306,30 @@ class SaveNoteTests(unittest.TestCase):
         self.assertFalse((self.vault / "YouTube").exists())
 
 
+class TopicMatchingTests(unittest.TestCase):
+    def test_plain_line_strips_markdown_and_shortens(self):
+        self.assertEqual(plain_line("## [[A|B]] and [at 1:00](https://y) `x` *y*"), "B and at 1:00 x y")
+        self.assertEqual(plain_line("1. " + "word " * 100, limit=20), "word word word word…")
+
+    def test_transcript_chunks_overlap_and_keep_start_times(self):
+        transcript = "\n".join(f"[00:{n:02}] w{n}" for n in range(10))
+        self.assertEqual(transcript_chunks(transcript, size=4, step=3), [
+            {"time": "00:00", "text": "w0 w1 w2 w3"}, {"time": "00:03", "text": "w3 w4 w5 w6"},
+            {"time": "00:06", "text": "w6 w7 w8 w9"}])
+        self.assertEqual(transcript_chunks("no timestamps here"), [{"time": "", "text": "no timestamps here"}])
+        self.assertEqual(transcript_chunks(""), [])
+
+    def test_pick_suggestions_ranks_strong_then_possible_and_drops_far_ones(self):
+        chunks = [{"time": "01:00", "text": "one " * 30}, {"time": "", "text": "short"}]
+        scores = [{"name": "Far", "score": 0.2, "chunk": 0}, {"name": "Maybe", "score": 0.55, "chunk": 1},
+                  {"name": "Sure", "score": 0.8, "chunk": 0}, {"name": "Named here", "score": 0.1, "chunk": 1}]
+        picked = pick_suggestions(scores, chunks, "This video says named and here.")
+        self.assertEqual([(p["name"], p["strength"]) for p in picked],
+                         [("Sure", "strong"), ("Maybe", "possible"), ("Named here", "possible")])
+        self.assertEqual(picked[0]["excerpt"], "one " * 23 + "one…")
+        self.assertEqual(pick_suggestions(scores, chunks, "", limit=1)[0]["name"], "Sure")
+
+
 class MakePromptTests(unittest.TestCase):
     def test_modes_include_their_own_instruction(self):
         expected = {"Skim + detailed notes": "detailed notes in video order",
@@ -319,6 +353,17 @@ class MakePromptTests(unittest.TestCase):
         self.assertNotIn("Existing YouTube topics", make_prompt(URL, "Quick skim", "", []))
         prompt = make_prompt(URL, "Quick skim", "", ["Active recall", "Café"])
         self.assertTrue(prompt.endswith('Existing YouTube topics (use only relevant ones): ["Active recall", "Café"]'))
+
+    def test_model_suggestions_ask_the_chat_model_to_check_them(self):
+        suggestions = [{"name": "Spaced repetition", "strength": "strong", "time": "12:40", "excerpt": "review later"},
+                       {"name": "Café", "strength": "possible", "time": "", "excerpt": ""}]
+        prompt = make_prompt(URL, "Quick skim", "", ["Ignored"], suggestions)
+        self.assertIn('- [[Spaced repetition]] (strong match near [12:40]: "review later")\n- [[Café]] (possible match)', prompt)
+        self.assertIn("It saw only short passages, not the whole video", prompt)
+        self.assertIn("create a new short topic name", prompt)
+        self.assertNotIn("Ignored", prompt)
+        self.assertTrue(make_prompt(URL, "Quick skim", "", [], []).endswith(
+            "None of my existing topics closely match this video, so create new short topic names for its reusable ideas."))
 
     def test_transcript_comes_first_in_one_message(self):
         prompt = make_prompt(URL, "Quick skim", "", [])

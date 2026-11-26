@@ -16,6 +16,9 @@ FIRST RUN
    from the app folder:
      sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 \
          webkit2gtk4.1 wl-clipboard nodejs
+   Arch / CachyOS:
+     sudo pacman -S --needed python-gobject gtk3 webkit2gtk-4.1 tk \
+         wl-clipboard nodejs
    Run ./install-desktop-entry.sh once to add Apis to the app grid. Run it
    again if you move the folder.
 2. On a new computer, Apis offers to install its desktop interface from PyPI
@@ -51,6 +54,11 @@ EACH VIDEO
    Open in Obsidian opens the new note; Obsidian has to know the vault, so
    open it there once first. Open saved folder shows the file. Explore the
    connections in Obsidian's Graph view or a topic's Backlinks.
+
+Optional: choose Install / update topic matcher in the three-dot menu to add
+a small model (about 450 MB) that suggests your existing topics by meaning, not
+just shared words. It runs on your computer. Your AI model still checks each
+suggestion and creates new topics when none fit.
 
 Choose your vault before copying the prompt to reuse topic names from your
 earlier video notes. Only topics the transcript mentions are included (up to

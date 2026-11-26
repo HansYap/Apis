@@ -4,6 +4,8 @@ const $ = (id) => document.getElementById(id);
 let busy = false;
 let ready = false;
 let readerInstalled = false;
+let topicModelInstalled = false;
+let topicTipShown = false;
 let currentStep = "transcript";
 let highestStep = 0;
 let preparedSignature = null;
@@ -204,12 +206,29 @@ async function prepare() {
     $("prompt-fallback").hidden = copied;
     $("prompt-fallback").open = !copied;
     $("prepared-title").textContent = copied ? "Prompt copied." : "Copy the prompt below.";
-    $("prepared-file").textContent = `Includes the transcript (${result.words.toLocaleString()} words).`;
+    $("prepared-file").textContent = `Includes the transcript (${result.words.toLocaleString()} words).` + linkingSummary(result.linking);
     preparedSignature = signature();
     highestStep = 2;
     $("prepared-result").hidden = false;
-    status(copied ? "Ready. Paste it into your AI chat and send, then continue to Obsidian." : "Clipboard access failed; select and copy the prompt below.");
+    let message = copied ? "Ready. Paste it into your AI chat and send, then continue to Obsidian." : "Clipboard access failed; select and copy the prompt below.";
+    if (result.linking.problem) message += `\n${result.linking.problem} Word matching was used instead.`;
+    else if (result.linking.method === "words" && !topicModelInstalled && !topicTipShown) {
+      topicTipShown = true;
+      message += "\nTip: Install topic matcher (⋯ menu beside Import file) to suggest links by meaning, not just shared words.";
+    }
+    status(message);
   });
+}
+
+function linkingSummary(linking) {
+  const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  if (linking.method === "model") {
+    return linking.count
+      ? ` ${plural(linking.count, "suggested link")} from your vault (${linking.strong} strong) for your AI model to check.`
+      : " No close matches in your vault, so your AI model will create new links.";
+  }
+  if (linking.method === "words") return linking.count ? ` ${plural(linking.count, "vault topic")} matched by shared words.` : "";
+  return "";
 }
 
 async function saveNote() {
@@ -298,6 +317,16 @@ $("install-reader").addEventListener("click", async () => {
     await run("Setting up the caption reader…", async () => { await api("install_reader"); readerInstalled = true; status("Caption reader ready. Paste a link and get started."); });
   }
 });
+$("install-topic-model").addEventListener("click", async () => {
+  $("tools-menu").hidden = true;
+  $("tools-toggle").setAttribute("aria-expanded", "false");
+  if (await confirmAction("Topic matcher setup", "Download a small multilingual model (about 450 MB with its runtime) into Apis’ folder? It runs on this computer and suggests which of your existing topics fit each video. Transcripts never leave your computer for this step.", "Install / update")) {
+    await run("Setting up the topic matcher… This can take a few minutes.", async () => {
+      topicModelInstalled = (await api("install_topic_model")).topic_model_installed;
+      status("Topic matcher ready. Copy a prompt to get link suggestions from your vault.");
+    });
+  }
+});
 $("confirm-dialog").addEventListener("click", (event) => {
   // A click on the backdrop targets the dialog itself but lands outside its box: treat it as Cancel.
   const box = event.currentTarget.getBoundingClientRect();
@@ -326,6 +355,7 @@ async function initialize() {
     const data = await api("initialize");
     vaultPath = data.vault;
     readerInstalled = data.reader_installed;
+    topicModelInstalled = data.topic_model_installed;
     updateContext();
     status("A little curiosity goes a long way.");
   } catch (error) { status(error.message, "error"); }

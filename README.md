@@ -19,6 +19,9 @@ Python bindings come from dnf, not pip. Install the desktop packages once:
 sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 webkit2gtk4.1 wl-clipboard nodejs
 ```
 
+On Arch or CachyOS: `sudo pacman -S --needed python-gobject gtk3 webkit2gtk-4.1 tk wl-clipboard nodejs`.
+Python there ships without pip, so Apis makes a private one in `.pip-env/` when it first installs something.
+
 Then run `./start-apis.sh`. Run `./install-desktop-entry.sh` once to add Apis to the app grid
 (run it again if you move the folder).
 
@@ -44,7 +47,16 @@ Manual transcript import and note saving do not need a JavaScript runtime.
    **Open in Obsidian** opens the new note; **Open saved folder** shows the file.
 
 Choose your vault before copying a prompt so it reuses topic names from your earlier video notes.
-Only topics the transcript mentions are included (plain word matching, up to 40), so the prompt stays short.
+
+**Topic matcher (optional).** Without it, Apis offers topics whose words appear in the transcript
+(up to 40). Choose **Install / update topic matcher** in the ⋯ menu beside **Import file** to add a small
+multilingual embedding model (`paraphrase-multilingual-MiniLM-L12-v2` via fastembed and onnxruntime,
+about 450 MB in `.topic-model/`). It compares each topic, described by the sentences around its earlier
+links, with passages of the transcript, and suggests the closest ones (up to 15) as *strong* or *possible*
+matches with a timestamp and excerpt. The prompt tells your AI model that the matcher only saw short
+passages, so it checks each suggestion against the full transcript, skips the ones that do not fit, and
+creates new topic names for ideas that match none. It runs on your computer and goes online only to download
+the model; if it fails, Apis falls back to word matching.
 Apis remembers the vault across videos and restarts. Press **Ctrl + L** to return to the
 video link. Switching screens preserves your work, and **New video** asks before clearing
 a transcript or note.
@@ -67,6 +79,7 @@ uses CSS backdrop blur over original SVG artwork. See `START HERE.txt` for help.
 
 - `app.py`: native window, Python bridge, caption tasks, dialogs, and file operations.
 - `caption_core.py`: caption parsing, prompts, Obsidian properties, and topic linking.
+- `topic_model.py`: the optional topic matcher, run as its own process with its own packages.
 - `web/`: plain HTML, CSS, JavaScript, SVG, and the bundled font. No frontend build step.
 - `tests/`: offline checks for the bridge (`test_app.py`) and the caption and linking logic (`test_caption_core.py`).
 

@@ -14,7 +14,9 @@ import threading
 from urllib.parse import quote
 import webbrowser
 
-from caption_core import clean_transcript, make_prompt, save_note, topic_names, video_url, with_transcript
+from caption_core import (clean_transcript, make_prompt, pick_suggestions, save_note, topic_names, topic_profiles,
+                          transcript_chunks, video_url, with_transcript)
+import topic_model
 
 ROOT = Path(__file__).resolve().parent
 DEPS = ROOT / ".packages"
@@ -25,6 +27,49 @@ PYTHON = Path(sys.executable)
 if PYTHON.name.casefold() == "pythonw.exe":
     PYTHON = PYTHON.with_name("python.exe")
 LINUX_PACKAGES = "sudo dnf install python3-pip python3-tkinter python3-gobject gtk3 webkit2gtk4.1 wl-clipboard nodejs"
+
+
+def pip_command():
+    """pip for this Python. Some distributions (Arch, CachyOS) ship Python without pip; then Apis makes
+    a private environment with Python's bundled ensurepip and uses its pip. Packages still go to --target."""
+    if importlib.util.find_spec("pip"):
+        return [str(PYTHON), "-m", "pip"]
+    env = ROOT / ".pip-env"
+    python = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not python.is_file():
+        result = subprocess.run([str(PYTHON), "-m", "venv", "--clear", str(env)], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", creationflags=HIDE_CONSOLE, timeout=180)
+        if result.returncode or not python.is_file():
+            raise RuntimeError("Python's package installer (pip) is missing. Install it (Fedora: python3-pip, "
+                               "Arch: python-pip) and try again.\n" + (result.stderr or result.stdout)[-500:])
+    return [str(python), "-m", "pip"]
+
+
+def pip_install(target, *packages, timeout=180):
+    result = subprocess.run([
+        *pip_command(), "--disable-pip-version-check", "--no-cache-dir", "install",
+        "--index-url", "https://pypi.org/simple", "--retries", "1", "--timeout", "15",
+        "--upgrade", "--target", str(target), *packages,
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=HIDE_CONSOLE, timeout=timeout)
+    if result.returncode:
+        return "\n".join((result.stderr or result.stdout).strip().splitlines()[-5:])
+    return ""
+
+
+def run_topic_model(arguments=(), job=None, online=False, timeout=120):
+    """Run topic_model.py in its own process and return its JSON reply."""
+    result = subprocess.run([str(PYTHON), str(ROOT / "topic_model.py"), *arguments],
+                            input=json.dumps(job) if job is not None else "", capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", env=topic_model.worker_env(online),
+                            creationflags=HIDE_CONSOLE, timeout=timeout)
+    try:
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        lines = (result.stderr or "").strip().splitlines()
+        data = {"error": lines[-1] if lines else "it gave no reply"}
+    if "error" in data:
+        raise RuntimeError(f"The topic matcher stopped: {data['error']}")
+    return data
 
 
 def endpoint(function):
@@ -72,6 +117,7 @@ class Api:
         self._prepared = None
         self._saved_note = None
         self._caption_lock = threading.Lock()
+        self._topic_lock = threading.Lock()
 
     @endpoint
     def initialize(self):
@@ -81,7 +127,8 @@ class Api:
             settings = {}
         selected = settings.get("vault", "") if isinstance(settings, dict) else ""
         return {"vault": selected if isinstance(selected, str) else "",
-                "reader_installed": (DEPS / "yt_dlp" / "__init__.py").is_file()}
+                "reader_installed": (DEPS / "yt_dlp" / "__init__.py").is_file(),
+                "topic_model_installed": topic_model.installed()}
 
     @endpoint
     def choose_vault(self):
@@ -119,18 +166,51 @@ class Api:
         if not self._caption_lock.acquire(blocking=False):
             raise ValueError("Wait for the current caption task to finish.")
         try:
-            result = subprocess.run([
-                str(PYTHON), "-m", "pip", "--disable-pip-version-check", "--no-cache-dir", "install",
-                "--index-url", "https://pypi.org/simple", "--retries", "1", "--timeout", "15",
-                "--upgrade", "--target", str(DEPS), "yt-dlp[default]",
-            ], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                creationflags=HIDE_CONSOLE, timeout=180)
-            if result.returncode:
-                tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-5:])
-                raise RuntimeError("The caption reader could not be installed. You can still paste captions.\n" + tail)
+            error = pip_install(DEPS, "yt-dlp[default]")
+            if error:
+                raise RuntimeError("The caption reader could not be installed. You can still paste captions.\n" + error)
             return {"reader_installed": True}
         finally:
             self._caption_lock.release()
+
+    @endpoint
+    def install_topic_model(self):
+        """fastembed + onnxruntime in .topic-model/packages, then the model itself (about 250 MB in all)."""
+        if not self._topic_lock.acquire(blocking=False):
+            raise ValueError("The topic matcher is already being set up.")
+        try:
+            error = pip_install(topic_model.PACKAGES, topic_model.FASTEMBED, timeout=600)
+            if error:
+                raise RuntimeError("The topic matcher could not be installed. Apis keeps using word matching.\n" + error)
+            topic_model.READY.unlink(missing_ok=True)
+            run_topic_model(["--download"], online=True, timeout=900)
+            return {"topic_model_installed": topic_model.installed()}
+        finally:
+            self._topic_lock.release()
+
+    def _suggest_topics(self, vault, text):
+        """Model suggestions when the matcher is installed, otherwise word matching (and why)."""
+        profiles = topic_profiles(vault)
+        if not profiles:
+            return [], None, {"method": "none", "count": 0}
+        if topic_model.installed():
+            if not self._topic_lock.acquire(blocking=False):
+                raise ValueError("Wait for the topic matcher setup to finish.")
+            try:
+                chunks = transcript_chunks(text)
+                scores = run_topic_model(job={"topics": [{"name": p["name"], "text": p["text"]} for p in profiles],
+                                              "chunks": chunks})["scores"]
+                suggestions = pick_suggestions(scores, chunks, text)
+                return [], suggestions, {"method": "model", "count": len(suggestions),
+                                         "strong": sum(item["strength"] == "strong" for item in suggestions)}
+            except (RuntimeError, OSError, subprocess.SubprocessError, KeyError) as exc:
+                fallback = str(exc)
+            finally:
+                self._topic_lock.release()
+        else:
+            fallback = ""
+        topics = topic_names(vault, text)
+        return topics, None, {"method": "words", "count": len(topics), "problem": fallback}
 
     @endpoint
     def fetch(self, link, language):
@@ -180,11 +260,14 @@ class Api:
         if mode == "Answer a question" and not question:
             raise ValueError("Add your question so your AI model knows what to answer.")
         title = payload.get("title", "").strip() or f"YouTube video {identifier}"
-        topics = topic_names(vault_path(payload["vault"]), text) if payload.get("vault", "").strip() else []
+        if payload.get("vault", "").strip():
+            topics, suggestions, linking = self._suggest_topics(vault_path(payload["vault"]), text)
+        else:
+            topics, suggestions, linking = [], None, {"method": "none", "count": 0}
         track = self._fetched[1] if self._fetched and self._fetched[0] == url and self._fetched[2] == text else "Pasted or imported"
-        prompt = with_transcript(make_prompt(url, mode, question, topics), url, title, track, text)
+        prompt = with_transcript(make_prompt(url, mode, question, topics, suggestions), url, title, track, text)
         self._prepared = (url, title)
-        return {"prompt": prompt, "words": len(text.split()), "copied": self._copy_prompt(prompt)}
+        return {"prompt": prompt, "words": len(text.split()), "copied": self._copy_prompt(prompt), "linking": linking}
 
     def _copy_prompt(self, prompt):
         if sys.platform.startswith("linux"):
@@ -290,7 +373,7 @@ def ensure_desktop():
         pass
     if not desktop_dialog("question", "Set up Apis", "Install Apis’ desktop interface from PyPI?\n\nIt stays inside this app’s folder. This is only needed once."):
         return None
-    result = subprocess.run([str(PYTHON), "-m", "pip", "--disable-pip-version-check", "install",
+    result = subprocess.run([*pip_command(), "--disable-pip-version-check", "install",
                              "--target", str(DEPS), "-r", str(ROOT / "requirements.txt")],
                             capture_output=True, text=True, encoding="utf-8", errors="replace",
                             creationflags=HIDE_CONSOLE, timeout=240)
@@ -344,7 +427,7 @@ def main():
     screen = webview.screens[0]
     window = webview.create_window("Apis", str(ROOT / "web" / "index.html"), js_api=api,
                                    width=min(1280, screen.width - 60), height=min(900, screen.height - 60),
-                                   min_size=(860, 640), background_color="#19181F", text_select=True)
+                                   min_size=(480, 420), background_color="#19181F", text_select=True)
     api._window = window
     window.events.before_show += lambda: dark_titlebar(window)
     if gui == "gtk":
