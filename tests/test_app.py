@@ -26,6 +26,9 @@ class DesktopWorkflowTests(unittest.TestCase):
         patcher = patch.object(app.shutil, "which", return_value=None)  # Never touch the real clipboard.
         patcher.start()
         self.addCleanup(patcher.stop)
+        patcher = patch.object(app.topic_model, "installed", return_value=False)  # Never run the real model.
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.api = app.Api()
         self.payload = {"url": "https://youtu.be/abcdefghijk", "title": "A useful idea",
                         "transcript": "0:05\nUse active recall.\n0:12\nReview it again tomorrow.",
@@ -65,6 +68,64 @@ class DesktopWorkflowTests(unittest.TestCase):
                          "[Watch on YouTube](https://www.youtube.com/watch?v=abcdefghijk)\n\n"
                          "## Notes\nUse [[Active recall]].\n")
         self.assertFalse((self.root / "YouTube" / "Topics").exists())
+
+    def test_prepare_uses_topic_model_suggestions_when_installed(self):
+        self.add_note("Earlier (lmnopqrstuv).md", "Use [[Spaced repetition]] to review at longer gaps.\n"
+                                                    "Try [[Active recall]] by testing yourself.\n[[Cooking]] tips.")
+        scores = {"scores": [{"name": "Spaced repetition", "score": 0.71, "chunk": 0},
+                             {"name": "Active recall", "score": 0.2, "chunk": 0},  # Named in the transcript, so kept.
+                             {"name": "Cooking", "score": 0.1, "chunk": 0}]}
+        with patch.object(app.topic_model, "installed", return_value=True), \
+                patch.object(app, "run_topic_model", return_value=scores) as model:
+            result = self.api.prepare(self.payload)
+        self.assertTrue(result["ok"], result)
+        job = model.call_args.kwargs["job"]
+        self.assertEqual(job["chunks"], [{"time": "00:05", "text": "Use active recall. Review it again tomorrow."}])
+        self.assertIn({"name": "Spaced repetition", "text": "Spaced repetition: Use Spaced repetition to review at longer gaps."},
+                      job["topics"])
+        prompt = result["data"]["prompt"]
+        self.assertIn('- [[Spaced repetition]] (strong match near [00:05]: "Use active recall. Review it again tomorrow.")', prompt)
+        self.assertIn("- [[Active recall]] (possible match", prompt)
+        self.assertNotIn("[[Cooking]]", prompt)
+        self.assertNotIn("Existing YouTube topics", prompt)
+        self.assertEqual(result["data"]["linking"], {"method": "model", "count": 2, "strong": 1})
+        self.assertFalse(self.api._topic_lock.locked())
+
+    def test_prepare_falls_back_to_word_matching_when_the_model_fails(self):
+        self.add_note("Earlier (lmnopqrstuv).md", "Uses [[Active recall]].")
+        with patch.object(app.topic_model, "installed", return_value=True), \
+                patch.object(app, "run_topic_model", side_effect=RuntimeError("The topic matcher stopped: boom")):
+            result = self.api.prepare(self.payload)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["data"]["prompt"].endswith('Existing YouTube topics (use only relevant ones): ["Active recall"]'))
+        self.assertEqual(result["data"]["linking"]["method"], "words")
+        self.assertIn("boom", result["data"]["linking"]["problem"])
+        self.assertFalse(self.api._topic_lock.locked())
+
+    def test_prepare_without_vault_topics_skips_the_model(self):
+        with patch.object(app.topic_model, "installed", return_value=True), patch.object(app, "run_topic_model") as model:
+            result = self.api.prepare(self.payload)
+        model.assert_not_called()
+        self.assertEqual(result["data"]["linking"], {"method": "none", "count": 0})
+        self.assertNotIn("None of my existing topics", result["data"]["prompt"])
+
+    def test_run_topic_model_reads_the_last_line_and_reports_errors(self):
+        reply = SimpleNamespace(stdout="noise\n" + json.dumps({"scores": []}), stderr="", returncode=0)
+        with patch.object(app.subprocess, "run", return_value=reply) as run:
+            self.assertEqual(app.run_topic_model(job={"topics": [], "chunks": []}), {"scores": []})
+        self.assertEqual(run.call_args.kwargs["env"]["HF_HUB_OFFLINE"], "1")  # Scoring never goes online.
+        failed = SimpleNamespace(stdout="", stderr="Traceback\nImportError: onnxruntime", returncode=1)
+        with patch.object(app.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "ImportError: onnxruntime"):
+                app.run_topic_model(job={})
+
+    def test_pip_command_bootstraps_a_private_pip_when_python_has_none(self):
+        with patch.object(app, "ROOT", self.root), patch.object(app.importlib.util, "find_spec", return_value=None), \
+                patch.object(app.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="no venv")):
+            with self.assertRaisesRegex(RuntimeError, "pip"):
+                app.pip_command()
+        with patch.object(app.importlib.util, "find_spec", return_value=object()):
+            self.assertEqual(app.pip_command(), [str(app.PYTHON), "-m", "pip"])
 
     def test_question_mode_requires_question_without_writing(self):
         self.payload.update(mode="Answer a question", question="")
